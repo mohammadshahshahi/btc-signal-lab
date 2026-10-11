@@ -84,10 +84,12 @@ class IndicatorTests(unittest.TestCase):
                 [None] * (len(values) - 1) + [1.0],
             )
 
-        with patch.object(engine, "ema", side_effect=fake_ema), \\
-             patch.object(engine, "rsi", side_effect=fake_rsi), \\
-             patch.object(engine, "macd", side_effect=fake_macd), \\
-             patch.object(engine, "atr", return_value=[None] * 49 + [2.0]):
+        with (
+            patch.object(engine, "ema", side_effect=fake_ema),
+            patch.object(engine, "rsi", side_effect=fake_rsi),
+            patch.object(engine, "macd", side_effect=fake_macd),
+            patch.object(engine, "atr", return_value=[None] * 49 + [2.0]),
+        ):
             result = engine.generate_signal(data)
         self.assertEqual(result["signal"], "BUY")
         self.assertEqual(result["reasons"], ["bullish_trend_momentum"])
@@ -109,10 +111,12 @@ class IndicatorTests(unittest.TestCase):
                 [None] * (len(values) - 1) + [-1.0],
             )
 
-        with patch.object(engine, "ema", side_effect=fake_ema), \\
-             patch.object(engine, "rsi", side_effect=fake_rsi), \\
-             patch.object(engine, "macd", side_effect=fake_macd), \\
-             patch.object(engine, "atr", return_value=[None] * 49 + [2.0]):
+        with (
+            patch.object(engine, "ema", side_effect=fake_ema),
+            patch.object(engine, "rsi", side_effect=fake_rsi),
+            patch.object(engine, "macd", side_effect=fake_macd),
+            patch.object(engine, "atr", return_value=[None] * 49 + [2.0]),
+        ):
             result = engine.generate_signal(data)
         self.assertEqual(result["signal"], "SELL")
         self.assertEqual(result["reasons"], ["bearish_trend_momentum"])
