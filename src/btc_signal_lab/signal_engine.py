@@ -11,6 +11,29 @@ from typing import Any, Iterable, Mapping, Sequence
 Candle = Mapping[str, Any]
 
 
+def _validate_period(period: int, name: str = "period") -> int:
+    if isinstance(period, bool) or not isinstance(period, int) or period < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return period
+
+
+def _validate_values(values: Sequence[float]) -> list[float]:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise TypeError("values must be a sequence of finite numbers")
+    result: list[float] = []
+    for i, value in enumerate(values):
+        if isinstance(value, bool):
+            raise ValueError(f"values[{i}] must be numeric")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"values[{i}] must be numeric") from exc
+        if not isfinite(number):
+            raise ValueError(f"values[{i}] must be finite")
+        result.append(number)
+    return result
+
+
 def _number(value: Any, field: str, index: int) -> float:
     if isinstance(value, bool):
         raise ValueError(f"candle[{index}].{field} must be numeric")
@@ -52,12 +75,12 @@ def _validate_candles(candles: Sequence[Candle]) -> tuple[list[float], list[floa
 
 def ema(values: Sequence[float], period: int) -> list[float | None]:
     """EMA seeded by the first period's SMA; earlier positions are None."""
-    if period < 1:
-        raise ValueError("period must be >= 1")
+    period = _validate_period(period)
+    values = _validate_values(values)
     out: list[float | None] = [None] * len(values)
     if len(values) < period:
         return out
-    seed = sum(float(v) for v in values[:period]) / period
+    seed = sum(values[:period]) / period
     out[period - 1] = seed
     alpha = 2.0 / (period + 1.0)
     current = seed
@@ -69,13 +92,13 @@ def ema(values: Sequence[float], period: int) -> list[float | None]:
 
 def rsi(values: Sequence[float], period: int = 14) -> list[float | None]:
     """Wilder RSI. The first value is at index period; flat series yields 50."""
-    if period < 1:
-        raise ValueError("period must be >= 1")
+    period = _validate_period(period)
+    values = _validate_values(values)
     out: list[float | None] = [None] * len(values)
     if len(values) <= period:
         return out
-    gains = [max(float(values[i]) - float(values[i - 1]), 0.0) for i in range(1, len(values))]
-    losses = [max(float(values[i - 1]) - float(values[i]), 0.0) for i in range(1, len(values))]
+    gains = [max(values[i] - values[i - 1], 0.0) for i in range(1, len(values))]
+    losses = [max(values[i - 1] - values[i], 0.0) for i in range(1, len(values))]
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
 
@@ -101,8 +124,10 @@ def macd(
     values: Sequence[float], fast_period: int = 12, slow_period: int = 26, signal_period: int = 9
 ) -> tuple[list[float | None], list[float | None], list[float | None]]:
     """Return MACD line, signal line, histogram; SMA-seeded component EMAs."""
-    if min(fast_period, slow_period, signal_period) < 1:
-        raise ValueError("MACD periods must be >= 1")
+    fast_period = _validate_period(fast_period, "fast_period")
+    slow_period = _validate_period(slow_period, "slow_period")
+    signal_period = _validate_period(signal_period, "signal_period")
+    values = _validate_values(values)
     if fast_period >= slow_period:
         raise ValueError("fast_period must be less than slow_period")
     fast = ema(values, fast_period)
@@ -128,8 +153,7 @@ def macd(
 
 def atr(candles: Sequence[Candle], period: int = 14) -> list[float | None]:
     """Wilder ATR; first value is the SMA of the first period true ranges."""
-    if period < 1:
-        raise ValueError("period must be >= 1")
+    period = _validate_period(period)
     highs, lows, closes = _validate_candles(candles)
     out: list[float | None] = [None] * len(candles)
     if len(candles) < period:
