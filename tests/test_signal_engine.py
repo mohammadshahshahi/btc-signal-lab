@@ -1,0 +1,91 @@
+import json
+import math
+import unittest
+
+from btc_signal_lab.signal_engine import atr, ema, generate_signal, macd, rsi, to_json
+
+
+def candles_from_closes(closes):
+    # Valid synthetic OHLC candles with a small range around each close.
+    return [
+        {"high": float(c) + 1.0, "low": float(c) - 1.0, "close": float(c)}
+        for c in closes
+    ]
+
+
+class IndicatorTests(unittest.TestCase):
+    def test_ema_sma_seed_and_warmup(self):
+        self.assertEqual(ema([1, 2, 3, 4], 3), [None, None, 2.0, 3.0])
+
+    def test_ema_rejects_invalid_period(self):
+        with self.assertRaises(ValueError):
+            ema([1, 2], 0)
+
+    def test_rsi_up_only_and_down_only(self):
+        self.assertEqual(rsi([1, 2, 3, 4], 2)[2], 100.0)
+        self.assertEqual(rsi([4, 3, 2, 1], 2)[2], 0.0)
+
+    def test_rsi_flat_series_is_neutral(self):
+        self.assertEqual(rsi([5, 5, 5, 5], 2)[2], 50.0)
+
+    def test_rsi_warmup(self):
+        self.assertEqual(rsi([1, 2, 3], 3), [None, None, None])
+
+    def test_macd_warmup_and_lengths(self):
+        line, sig, hist = macd([float(i) for i in range(40)])
+        self.assertEqual(len(line), 40)
+        self.assertIsNone(line[24])
+        self.assertIsNotNone(line[25])
+        self.assertIsNone(sig[32])
+        self.assertIsNotNone(sig[33])
+        self.assertAlmostEqual(hist[39], line[39] - sig[39])
+
+    def test_atr_wilder_and_warmup(self):
+        data = [
+            {"high": 10, "low": 8, "close": 9},
+            {"high": 12, "low": 9, "close": 11},
+            {"high": 13, "low": 10, "close": 12},
+        ]
+        result = atr(data, 2)
+        self.assertIsNone(result[0])
+        self.assertAlmostEqual(result[1], 2.5)
+        self.assertAlmostEqual(result[2], 2.75)
+
+    def test_signal_contract_is_json_serializable_and_paper_only(self):
+        result = generate_signal(candles_from_closes(range(1, 61)))
+        self.assertEqual(result["schema_version"], "1.0")
+        self.assertEqual(result["mode"], "paper_trading")
+        self.assertIn(result["signal"], {"BUY", "SELL", "HOLD"})
+        self.assertEqual(result["symbol"], "BTC/USDT")
+        self.assertEqual(set(result["indicators"]), {
+            "ema20", "ema50", "rsi14", "macd", "macd_signal",
+            "macd_histogram", "atr14"
+        })
+        self.assertEqual(json.loads(to_json(result)), result)
+
+    def test_insufficient_history_fails_closed_to_hold(self):
+        result = generate_signal(candles_from_closes(range(1, 30)))
+        self.assertEqual(result["signal"], "HOLD")
+        self.assertIn("insufficient_history", result["reasons"])
+        self.assertTrue(all(v is None for v in result["indicators"].values()))
+
+    def test_invalid_candle_values_are_rejected(self):
+        with self.assertRaises(ValueError):
+            generate_signal([{"high": 1, "low": 2, "close": 1.5}])
+        with self.assertRaises(ValueError):
+            generate_signal([{"high": math.nan, "low": 0, "close": 0}])
+
+    def test_required_fields_are_checked(self):
+        with self.assertRaises(ValueError):
+            generate_signal([{"close": 1, "high": 2}])
+
+    def test_symbol_and_timeframe_are_checked(self):
+        data = candles_from_closes(range(1, 5))
+        with self.assertRaises(ValueError):
+            generate_signal(data, symbol=" ")
+        with self.assertRaises(ValueError):
+            generate_signal(data, timeframe="")
+
+
+if __name__ == "__main__":
+    unittest.main()
