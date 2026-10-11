@@ -121,33 +121,39 @@ def run_backtest(
         entry_index = None
         entry_fee = 0.0
 
-    for i, candle in enumerate(data):
-        # The curve is marked at each close, net of estimated liquidation costs.
-        equity = mark_equity(candle["close"])
-        peak_equity = max(peak_equity, equity)
-        drawdown = (peak_equity - equity) / peak_equity if peak_equity else 0.0
-        max_drawdown = max(max_drawdown, drawdown)
-        equity_curve.append({
-            "index": i,
-            "timestamp": candle.get("timestamp"),
-            "equity": equity,
-            "drawdown": drawdown,
-        })
-        if i == len(data) - 1:
-            break
-
-        # Signal at close i can only be filled at open i+1.
+    # Record initial mark, then process each close-generated signal at the
+    # following candle open before marking that candle's close.
+    first_equity = mark_equity(data[0]["close"])
+    equity_curve.append({
+        "index": 0,
+        "timestamp": data[0].get("timestamp"),
+        "equity": first_equity,
+        "drawdown": 0.0,
+    })
+    for i in range(len(data) - 1):
         signal = signal_fn(data[: i + 1]).get("signal")
-        next_candle = data[i + 1]
+        next_index = i + 1
+        next_candle = data[next_index]
         if signal == "BUY" and quantity == 0.0:
             fill = next_candle["open"] * (1.0 + slip)
             quantity = cash / (fill * (1.0 + fee_rate))
             entry_fee = quantity * fill * fee_rate
-            cash -= quantity * fill + entry_fee
+            cash = 0.0
             entry_price = fill
-            entry_index = i + 1
+            entry_index = next_index
         elif signal == "SELL" and quantity > 0.0:
-            close_position(next_candle["open"], i + 1, "sell_signal")
+            close_position(next_candle["open"], next_index, "sell_signal")
+
+        equity = mark_equity(next_candle["close"])
+        peak_equity = max(peak_equity, equity)
+        drawdown = (peak_equity - equity) / peak_equity if peak_equity else 0.0
+        max_drawdown = max(max_drawdown, drawdown)
+        equity_curve.append({
+            "index": next_index,
+            "timestamp": next_candle.get("timestamp"),
+            "equity": equity,
+            "drawdown": drawdown,
+        })
 
     if quantity > 0.0:
         close_position(data[-1]["close"], len(data) - 1, "end_of_data")
@@ -155,6 +161,7 @@ def run_backtest(
         equity_curve[-1]["equity"] = final_equity
         peak_equity = max(peak_equity, final_equity)
         equity_curve[-1]["drawdown"] = (peak_equity - final_equity) / peak_equity
+        max_drawdown = max(max_drawdown, equity_curve[-1]["drawdown"])
 
     final_equity = cash
     net_return = final_equity / initial_capital - 1.0
