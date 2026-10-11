@@ -67,7 +67,10 @@ class IndicatorTests(unittest.TestCase):
         result = generate_signal(candles_from_closes(range(1, 30)))
         self.assertEqual(result["signal"], "HOLD")
         self.assertIn("insufficient_history", result["reasons"])
-        self.assertTrue(all(v is None for v in result["indicators"].values()))
+        self.assertIsNone(result["indicators"]["ema50"])
+        self.assertIsNone(result["indicators"]["macd_signal"])
+        self.assertIsNotNone(result["indicators"]["rsi14"])
+        self.assertIsNotNone(result["indicators"]["atr14"])
 
     def test_invalid_candle_values_are_rejected(self):
         with self.assertRaises(ValueError):
