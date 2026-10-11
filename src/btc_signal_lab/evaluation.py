@@ -107,9 +107,10 @@ def evaluate_dataset(
                 "next-open entry timing; benchmark remains continuously long thereafter"
             ),
         },
-        "results": {
-            "strategy": strategy,
-            "benchmark": benchmark,
+        # Keep the pre-1.1 strategy result fields at results.* for compatibility.
+        "results": strategy,
+        "benchmark": benchmark,
+        "comparison": {
             "strategy_minus_benchmark_return_pct": (
                 strategy["net_return_pct"] - benchmark["net_return_pct"]
             ),
