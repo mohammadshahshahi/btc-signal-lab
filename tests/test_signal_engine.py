@@ -1,6 +1,9 @@
 import json
 import math
 import unittest
+from unittest.mock import patch
+
+import btc_signal_lab.signal_engine as engine
 
 from btc_signal_lab.signal_engine import atr, ema, generate_signal, macd, rsi, to_json
 
@@ -62,6 +65,57 @@ class IndicatorTests(unittest.TestCase):
             "macd_histogram", "atr14"
         })
         self.assertEqual(json.loads(to_json(result)), result)
+
+
+    def test_buy_signal_requires_all_bullish_conditions(self):
+        data = candles_from_closes([130.0] * 50)
+
+        def fake_ema(values, period):
+            last = 120.0 if period == 20 else 110.0
+            return [None] * (len(values) - 1) + [last]
+
+        def fake_rsi(values, period=14):
+            return [None] * (len(values) - 1) + [60.0]
+
+        def fake_macd(values, fast_period=12, slow_period=26, signal_period=9):
+            return (
+                [None] * (len(values) - 1) + [2.0],
+                [None] * (len(values) - 1) + [1.0],
+                [None] * (len(values) - 1) + [1.0],
+            )
+
+        with patch.object(engine, "ema", side_effect=fake_ema), \\
+             patch.object(engine, "rsi", side_effect=fake_rsi), \\
+             patch.object(engine, "macd", side_effect=fake_macd), \\
+             patch.object(engine, "atr", return_value=[None] * 49 + [2.0]):
+            result = engine.generate_signal(data)
+        self.assertEqual(result["signal"], "BUY")
+        self.assertEqual(result["reasons"], ["bullish_trend_momentum"])
+
+    def test_sell_signal_requires_all_bearish_conditions(self):
+        data = candles_from_closes([80.0] * 50)
+
+        def fake_ema(values, period):
+            last = 90.0 if period == 20 else 100.0
+            return [None] * (len(values) - 1) + [last]
+
+        def fake_rsi(values, period=14):
+            return [None] * (len(values) - 1) + [40.0]
+
+        def fake_macd(values, fast_period=12, slow_period=26, signal_period=9):
+            return (
+                [None] * (len(values) - 1) + [-2.0],
+                [None] * (len(values) - 1) + [-1.0],
+                [None] * (len(values) - 1) + [-1.0],
+            )
+
+        with patch.object(engine, "ema", side_effect=fake_ema), \\
+             patch.object(engine, "rsi", side_effect=fake_rsi), \\
+             patch.object(engine, "macd", side_effect=fake_macd), \\
+             patch.object(engine, "atr", return_value=[None] * 49 + [2.0]):
+            result = engine.generate_signal(data)
+        self.assertEqual(result["signal"], "SELL")
+        self.assertEqual(result["reasons"], ["bearish_trend_momentum"])
 
     def test_insufficient_history_fails_closed_to_hold(self):
         result = generate_signal(candles_from_closes(range(1, 30)))
