@@ -24,6 +24,22 @@ class IndicatorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ema([1, 2], 0)
 
+    def test_indicators_reject_non_finite_values(self):
+        for indicator in (ema, rsi):
+            with self.subTest(indicator=indicator.__name__):
+                with self.assertRaises(ValueError):
+                    indicator([1.0, math.inf, 3.0], 2)
+        with self.assertRaises(ValueError):
+            macd([1.0, 2.0, math.nan], fast_period=1, slow_period=2, signal_period=1)
+
+    def test_indicators_require_positive_integer_periods(self):
+        for bad_period in (0, -1, 1.5, True):
+            with self.subTest(period=bad_period):
+                with self.assertRaises(ValueError):
+                    ema([1.0, 2.0], bad_period)
+        with self.assertRaises(ValueError):
+            atr(candles_from_closes([1.0, 2.0]), 1.5)
+
     def test_rsi_up_only_and_down_only(self):
         self.assertEqual(rsi([1, 2, 3, 4], 2)[2], 100.0)
         self.assertEqual(rsi([4, 3, 2, 1], 2)[2], 0.0)
