@@ -46,10 +46,10 @@ def evaluate_windows(
     """Evaluate explicitly ordered frozen datasets and return deterministic JSON data.
 
     Each window requires: name, partition (train/validation/test), csv_path,
-    interval, start_utc, and end_utc_exclusive. The supplied order must be
-    chronological and non-overlapping. A test partition, if present, must be
-    unique and last. The caller is responsible for obtaining dual approval
-    before supplying any held-out test dataset.
+    interval, start_utc, and end_utc_exclusive. Windows must be chronological
+    and non-overlapping within each interval. A test partition, if present,
+    must be unique and last within its interval. This permits the same UTC
+    partition to be evaluated independently at both 1h and 4h.
     """
     if not isinstance(windows, Sequence) or isinstance(windows, (str, bytes)):
         raise TypeError("windows must be a sequence")
@@ -60,8 +60,8 @@ def evaluate_windows(
 
     seen_names: set[str] = set()
     normalized: list[dict[str, Any]] = []
-    previous_end = None
-    test_indexes: list[int] = []
+    previous_end_by_interval: dict[str, Any] = {}
+    test_indexes_by_interval: dict[str, list[int]] = {"1h": [], "4h": []}
 
     for index, spec in enumerate(windows):
         if not isinstance(spec, Mapping):
@@ -73,6 +73,7 @@ def evaluate_windows(
 
         name = spec["name"]
         partition = spec["partition"]
+        interval = spec["interval"]
         if not isinstance(name, str) or not name.strip():
             raise ValueError(f"windows[{index}].name must be non-empty")
         if name in seen_names:
@@ -80,20 +81,21 @@ def evaluate_windows(
         seen_names.add(name)
         if partition not in {"train", "validation", "test"}:
             raise ValueError(f"windows[{index}].partition must be train, validation, or test")
+        if interval not in {"1h", "4h"}:
+            raise ValueError(f"window {name} interval must be 1h or 4h")
         if partition == "test":
-            test_indexes.append(index)
+            test_indexes_by_interval[interval].append(index)
 
         start = parse_utc(spec["start_utc"])
         end = parse_utc(spec["end_utc_exclusive"])
         if end <= start:
             raise ValueError(f"window {name} end must be later than start")
+        previous_end = previous_end_by_interval.get(interval)
         if previous_end is not None and start < previous_end:
-            raise ValueError("windows must be supplied in chronological, non-overlapping order")
-        previous_end = end
-
-        interval = spec["interval"]
-        if interval not in {"1h", "4h"}:
-            raise ValueError(f"window {name} interval must be 1h or 4h")
+            raise ValueError(
+                f"windows must be supplied in chronological, non-overlapping order within {interval}"
+            )
+        previous_end_by_interval[interval] = end
 
         normalized.append({
             "name": name,
@@ -104,10 +106,16 @@ def evaluate_windows(
             "end_utc_exclusive": end.isoformat().replace("+00:00", "Z"),
         })
 
-    if len(test_indexes) > 1:
-        raise ValueError("at most one final test partition is allowed per evaluation run")
-    if test_indexes and test_indexes[0] != len(normalized) - 1:
-        raise ValueError("the final test partition must be the last chronological window")
+    for interval, test_indexes in test_indexes_by_interval.items():
+        if len(test_indexes) > 1:
+            raise ValueError(f"at most one final test partition is allowed for {interval}")
+        if test_indexes:
+            later_indexes = [
+                index for index, spec in enumerate(normalized)
+                if spec["interval"] == interval and index > test_indexes[0]
+            ]
+            if later_indexes:
+                raise ValueError(f"the final test partition must be last for {interval}")
 
     reports: list[dict[str, Any]] = []
     for spec in normalized:
