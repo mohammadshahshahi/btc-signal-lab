@@ -12,6 +12,7 @@ write_report(report, "reports/btcusdt_1h_2025-01.json")
 print(report["results"])
 print(report["benchmark"])
 print(report["comparison"])
+print(report["forward_horizon"])
 ```
 
 Evaluation fails closed when the manifest is missing, the CSV hash or row count
@@ -34,3 +35,17 @@ descriptive, not proof of statistical significance.
 This improves reproducibility but does not establish future profitability.
 Freeze parameters before evaluating held-out data. The fee and slippage inputs
 are assumptions and must be checked against the venue and market conditions.
+
+
+## 24-hour forward-direction diagnostic
+
+For datasets containing at least 25 candles, report schema 1.2 also includes
+`forward_horizon`. It evaluates each signal using only candles available
+through that signal candle close, then compares LONG/SHORT/NEUTRAL with the
+close 24 bars later. On BTCUSDT 1h candles, 24 bars is a 24-hour horizon.
+Shorter datasets set this field to null.
+
+This diagnostic reports directional accuracy, long/short hit rates, and
+signal coverage. It is not fill-level PnL, and overlapping 24-hour observations
+are not statistically independent. See
+`docs/forward-horizon-evaluation.md` for the full contract.
