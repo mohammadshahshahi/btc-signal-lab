@@ -87,6 +87,7 @@ def run_backtest(
     equity_curve: list[dict[str, Any]] = []
     peak_equity = initial_capital
     max_drawdown = 0.0
+    in_position_bars = 0
     slip = slippage_bps / 10_000.0
 
     def mark_equity(reference_price: float) -> float:
@@ -101,7 +102,8 @@ def run_backtest(
         exit_fee = quantity * fill * fee_rate
         proceeds = quantity * fill - exit_fee
         cash += proceeds
-        pnl = proceeds - (quantity * float(entry_price) + entry_fee)
+        cost_basis = quantity * float(entry_price) + entry_fee
+        pnl = proceeds - cost_basis
         trade = {
             "entry_index": entry_index,
             "exit_index": index,
@@ -113,6 +115,8 @@ def run_backtest(
             "entry_fee": entry_fee,
             "exit_fee": exit_fee,
             "net_pnl": pnl,
+            "net_return_pct": (pnl / cost_basis * 100.0) if cost_basis else 0.0,
+            "holding_bars": index - int(entry_index),
             "exit_reason": reason,
         }
         trades.append(trade)
@@ -145,6 +149,8 @@ def run_backtest(
             close_position(next_candle["open"], next_index, "sell_signal")
 
         equity = mark_equity(next_candle["close"])
+        if quantity > 0.0:
+            in_position_bars += 1
         peak_equity = max(peak_equity, equity)
         drawdown = (peak_equity - equity) / peak_equity if peak_equity else 0.0
         max_drawdown = max(max_drawdown, drawdown)
@@ -166,6 +172,9 @@ def run_backtest(
     final_equity = cash
     net_return = final_equity / initial_capital - 1.0
     wins = sum(1 for trade in trades if trade["net_pnl"] > 0)
+    gross_profit = sum(trade["net_pnl"] for trade in trades if trade["net_pnl"] > 0)
+    gross_loss = -sum(trade["net_pnl"] for trade in trades if trade["net_pnl"] < 0)
+    trade_count = len(trades)
     return {
         "mode": "historical_backtest",
         "strategy": "long_only_next_open",
@@ -174,8 +183,19 @@ def run_backtest(
         "net_profit": final_equity - initial_capital,
         "net_return_pct": net_return * 100.0,
         "max_drawdown_pct": max_drawdown * 100.0,
-        "trade_count": len(trades),
-        "win_rate_pct": (wins / len(trades) * 100.0) if trades else 0.0,
+        "trade_count": trade_count,
+        "win_rate_pct": (wins / trade_count * 100.0) if trade_count else 0.0,
+        "gross_profit": gross_profit,
+        "gross_loss": gross_loss,
+        "profit_factor": (gross_profit / gross_loss) if gross_loss > 0 else None,
+        "average_trade_pnl": (sum(t["net_pnl"] for t in trades) / trade_count) if trade_count else 0.0,
+        "average_trade_return_pct": (
+            sum(t["net_return_pct"] for t in trades) / trade_count
+        ) if trade_count else 0.0,
+        "average_holding_bars": (
+            sum(t["holding_bars"] for t in trades) / trade_count
+        ) if trade_count else 0.0,
+        "exposure_pct": in_position_bars / len(data) * 100.0,
         "fee_rate": fee_rate,
         "slippage_bps": slippage_bps,
         "trades": trades,
