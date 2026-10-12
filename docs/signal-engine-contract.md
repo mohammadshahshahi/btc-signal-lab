@@ -1,4 +1,4 @@
-# Signal Engine Contract (v1.0)
+# Signal Engine Contract (v1.1)
 
 ## Scope and safety
 
@@ -21,11 +21,20 @@ Call `generate_signal(candles, symbol="BTC/USDT", timeframe="1h")`.
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "mode": "paper_trading",
   "symbol": "BTC/USDT",
   "timeframe": "1h",
   "signal": "HOLD",
+  "direction": "NEUTRAL",
+  "score": 50.0,
+  "score_components": {
+    "trend": 0.0,
+    "price_vs_ema20": 0.0,
+    "macd_momentum": 0.0,
+    "rsi_momentum": 0.0
+  },
+  "score_thresholds": {"long": 70.0, "short": 30.0},
   "price": 100.0,
   "indicators": {
     "ema20": null,
@@ -60,15 +69,33 @@ Infinity are never emitted. `to_json` emits deterministic compact JSON.
   20-candle simple moving average and latest-volume / average-volume ratio.
   Volume is not required by v1.0 callers and is not a directional signal by itself.
 
-## Baseline signal rules
+## Continuous directional score
 
-- BUY: close > EMA20 > EMA50, MACD > signal, histogram > 0, RSI in [50, 70].
-- SELL: close < EMA20 < EMA50, MACD < signal, histogram < 0, RSI in [30, 50].
-- HOLD: all other cases, including insufficient indicator history.
+The v1.1 score is a deterministic technical-strength index in [0, 100], not a
+probability or calibrated confidence estimate. A score of 50 is neutral.
+Insufficient indicator history returns score 50 and HOLD/NEUTRAL.
 
-The rules are deliberately conservative and transparent. They are an initial
-baseline to review with the collaborators, not a validated trading strategy.
-No backtest or profitability claim is implied.
+Each component is bounded to [-1, 1] and normalized by ATR where applicable:
+
+- trend = tanh(4 * (EMA20 - EMA50) / ATR14)
+- price_vs_ema20 = tanh(2 * (close - EMA20) / ATR14)
+- macd_momentum = tanh(20 * (MACD - MACD_signal) / ATR14)
+- rsi_momentum = clamp((RSI14 - 50) / 20, -1, 1)
+
+The directional composite is 35% trend, 20% price_vs_ema20, 25%
+macd_momentum, and 20% rsi_momentum. The final score is
+clamp(50 + 50 * composite, 0, 100). Volume ratio is reported as context but
+does not independently determine direction. ATR is a volatility scale, not a
+bullish or bearish input.
+
+- score >= 70: signal BUY, direction LONG.
+- score <= 30: signal SELL, direction SHORT.
+- otherwise: signal HOLD, direction NEUTRAL.
+
+BUY/SELL/HOLD are retained for compatibility with the paper simulator;
+LONG/SHORT/NEUTRAL are explicit direction aliases for reporting and analysis.
+These thresholds and weights are an initial heuristic baseline, not a
+validated strategy. No probability or profitability claim is implied.
 
 ## Compatibility and collaboration
 
