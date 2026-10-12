@@ -75,7 +75,9 @@ jobs:
               "interval": manifest["interval"],
               "start_utc": manifest["start_utc"],
               "end_utc_exclusive": manifest["end_utc_exclusive"],
-              "results": report["results"],
+              "strategy_results": report["results"],
+              "benchmark_results": report["benchmark"],
+              "comparison": report["comparison"],
           }
           (out / "summary.json").write_text(
               json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\\n",
