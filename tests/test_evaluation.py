@@ -20,6 +20,7 @@ class EvaluationTests(unittest.TestCase):
             report=evaluate_dataset(path,fee_rate=0,slippage_bps=0)
             self.assertEqual(report["dataset"]["csv_sha256"],manifest["csv_sha256"])
             self.assertEqual(report["results"]["trade_count"],0)
+            self.assertIsNone(report["forward_horizon"])
             self.assertTrue(report["evaluation_generated_at_utc"].endswith("Z"))
     def test_tampered_file_fails_hash(self):
         with tempfile.TemporaryDirectory() as d:
