@@ -5,7 +5,7 @@ Input candles are chronological (oldest first) OHLC mappings with finite numbers
 """
 from __future__ import annotations
 
-from math import isfinite
+from math import isfinite, tanh
 from typing import Any, Iterable, Mapping, Sequence
 
 Candle = Mapping[str, Any]
@@ -238,6 +238,13 @@ def generate_signal(
     ready = all(value is not None and isfinite(value) for value in required)
     close = closes[-1]
     signal = "HOLD"
+    score = 50.0
+    score_components = {
+        "trend": 0.0,
+        "price_vs_ema20": 0.0,
+        "macd_momentum": 0.0,
+        "rsi_momentum": 0.0,
+    }
     reasons: list[str] = []
     if not ready:
         reasons.append("insufficient_history")
@@ -247,21 +254,45 @@ def generate_signal(
         r = float(values["rsi14"])
         m = float(values["macd"])
         ms = float(values["macd_signal"])
-        mh = float(values["macd_histogram"])
-        if close > e20 > e50 and m > ms and mh > 0 and 50 <= r <= 70:
+        volatility_scale = max(float(values["atr14"]), abs(close) * 1e-9, 1e-12)
+
+        # Each component is bounded to [-1, 1]. ATR normalization makes the
+        # price/momentum terms comparable across BTC price regimes.
+        score_components = {
+            "trend": tanh(((e20 - e50) / volatility_scale) * 4.0),
+            "price_vs_ema20": tanh(((close - e20) / volatility_scale) * 2.0),
+            "macd_momentum": tanh(((m - ms) / volatility_scale) * 20.0),
+            "rsi_momentum": max(-1.0, min(1.0, (r - 50.0) / 20.0)),
+        }
+        directional_score = (
+            0.35 * score_components["trend"]
+            + 0.20 * score_components["price_vs_ema20"]
+            + 0.25 * score_components["macd_momentum"]
+            + 0.20 * score_components["rsi_momentum"]
+        )
+        score = max(0.0, min(100.0, 50.0 + 50.0 * directional_score))
+        if score >= 70.0:
             signal = "BUY"
-            reasons.append("bullish_trend_momentum")
-        elif close < e20 < e50 and m < ms and mh < 0 and 30 <= r <= 50:
+            reasons.append("bullish_score_threshold")
+        elif score <= 30.0:
             signal = "SELL"
-            reasons.append("bearish_trend_momentum")
+            reasons.append("bearish_score_threshold")
         else:
-            reasons.append("criteria_not_met")
+            reasons.append("score_neutral")
+
+    direction = {"BUY": "LONG", "SELL": "SHORT", "HOLD": "NEUTRAL"}[signal]
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "mode": "paper_trading",
         "symbol": symbol.strip().upper(),
         "timeframe": timeframe.strip(),
         "signal": signal,
+        "direction": direction,
+        "score": round(score, 6),
+        "score_components": {
+            key: round(value, 8) for key, value in score_components.items()
+        },
+        "score_thresholds": {"long": 70.0, "short": 30.0},
         "price": close,
         "indicators": values,
         "reasons": reasons,
