@@ -1,6 +1,20 @@
 name: Multi-Regime Paper Validation
 
 on:
+  push:
+    branches: [feat/signal-engine]
+    paths:
+      - ".github/workflows/multi-regime-paper-validation.yml"
+      - "src/**"
+      - "docs/multi-regime-validation-protocol.md"
+      - "pyproject.toml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/multi-regime-paper-validation.yml"
+      - "src/**"
+      - "docs/multi-regime-validation-protocol.md"
+      - "pyproject.toml"
   workflow_dispatch:
     inputs:
       fee_rate:
@@ -66,8 +80,8 @@ jobs:
           END_UTC: ${{ matrix.end_utc }}
           INTERVAL: ${{ matrix.interval }}
           WINDOW: ${{ matrix.window }}
-          FEE_RATE: ${{ inputs.fee_rate }}
-          SLIPPAGE_BPS: ${{ inputs.slippage_bps }}
+          FEE_RATE: ${{ inputs.fee_rate || '0.001' }}
+          SLIPPAGE_BPS: ${{ inputs.slippage_bps || '5' }}
           CODE_COMMIT: ${{ github.sha }}
         run: |
           python - <<'PY'
