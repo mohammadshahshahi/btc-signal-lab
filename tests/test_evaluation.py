@@ -22,6 +22,32 @@ class EvaluationTests(unittest.TestCase):
             self.assertEqual(report["results"]["trade_count"],0)
             self.assertIsNone(report["forward_horizon"])
             self.assertTrue(report["evaluation_generated_at_utc"].endswith("Z"))
+    def test_report_includes_24h_forward_horizon_when_enough_data(self):
+        with tempfile.TemporaryDirectory() as d:
+            rows = [
+                {
+                    "timestamp_ms": index * 3600000,
+                    "timestamp": f"1970-01-01T{index:02d}:00:00Z",
+                    "open": 100.0 + index,
+                    "high": 102.0 + index,
+                    "low": 99.0 + index,
+                    "close": 101.0 + index,
+                    "volume": 10.0,
+                }
+                for index in range(25)
+            ]
+            path = Path(d) / "long.csv"
+            save_dataset(
+                rows, path, symbol="BTCUSDT", interval="1h",
+                start="1970-01-01T00:00:00Z",
+                end="1970-01-02T01:00:00Z",
+            )
+            report = evaluate_dataset(path, fee_rate=0, slippage_bps=0)
+            self.assertEqual(report["report_schema_version"], "1.2")
+            self.assertEqual(report["forward_horizon"]["horizon_bars"], 24)
+            self.assertEqual(report["forward_horizon"]["observation_count"], 1)
+            self.assertEqual(report["forward_horizon"]["neutral_count"], 1)
+
     def test_tampered_file_fails_hash(self):
         with tempfile.TemporaryDirectory() as d:
             path=self.make_data(d); path.write_text(path.read_text()+"\n")
