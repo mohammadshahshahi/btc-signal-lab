@@ -36,6 +36,22 @@ class MarketDataTests(unittest.TestCase):
             normalize_klines([[0, "100", "98", "99", "101", "1"]],
                              0, 3_600_000, "1h")
 
+    def test_normalize_rejects_out_of_order_payload_without_sorting(self):
+        rows = [
+            [3_600_000, "101", "103", "100", "102", "1"],
+            [0, "100", "102", "99", "101", "1"],
+        ]
+        with self.assertRaisesRegex(ValueError, "out-of-order"):
+            normalize_klines(rows, 0, 7_200_000, "1h")
+
+    def test_normalize_rejects_duplicate_timestamp_in_source_order(self):
+        rows = [
+            [0, "100", "102", "99", "101", "1"],
+            [0, "100", "102", "99", "101", "1"],
+        ]
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            normalize_klines(rows, 0, 3_600_000, "1h")
+
     def test_save_writes_manifest_and_hash(self):
         rows = normalize_klines([[0, "100", "102", "99", "101", "10"]],
                                 0, 3_600_000, "1h")
