@@ -156,6 +156,27 @@ class IndicatorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             generate_signal([{"close": 1, "high": 2}])
 
+    def test_optional_volume_metrics_are_reported(self):
+        data = [
+            {"high": float(i + 2), "low": float(i), "close": float(i + 1), "volume": float(i + 1)}
+            for i in range(1, 61)
+        ]
+        result = generate_signal(data)
+        self.assertAlmostEqual(result["indicators"]["volume_sma20"], 51.5)
+        self.assertGreater(result["indicators"]["volume_ratio"], 0)
+
+    def test_volume_must_be_consistent_and_non_negative(self):
+        data = candles_from_closes(range(1, 25))
+        data[-1]["volume"] = 10
+        with self.assertRaises(ValueError):
+            generate_signal(data)
+        invalid = candles_from_closes(range(1, 25))
+        for candle in invalid:
+            candle["volume"] = 1
+        invalid[-1]["volume"] = -1
+        with self.assertRaises(ValueError):
+            generate_signal(invalid)
+
     def test_symbol_and_timeframe_are_checked(self):
         data = candles_from_closes(range(1, 5))
         with self.assertRaises(ValueError):
