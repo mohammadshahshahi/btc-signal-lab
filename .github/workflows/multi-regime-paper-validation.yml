@@ -1,0 +1,133 @@
+name: Multi-Regime Paper Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      fee_rate:
+        description: "Fee fraction per side; freeze before viewing held-out results"
+        required: true
+        default: "0.001"
+        type: string
+      slippage_bps:
+        description: "Slippage basis points per side; freeze before viewing held-out results"
+        required: true
+        default: "5"
+        type: string
+
+permissions:
+  contents: read
+
+# Pre-registered chronological windows. Do not tune weights/thresholds on these results.
+jobs:
+  evaluate-window:
+    name: ${{ matrix.window }} / ${{ matrix.interval }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - window: bear-market
+            start_utc: "2021-11-01T00:00:00Z"
+            end_utc: "2022-11-01T00:00:00Z"
+            interval: "1h"
+          - window: bear-market
+            start_utc: "2021-11-01T00:00:00Z"
+            end_utc: "2022-11-01T00:00:00Z"
+            interval: "4h"
+          - window: recovery
+            start_utc: "2023-01-01T00:00:00Z"
+            end_utc: "2024-01-01T00:00:00Z"
+            interval: "1h"
+          - window: recovery
+            start_utc: "2023-01-01T00:00:00Z"
+            end_utc: "2024-01-01T00:00:00Z"
+            interval: "4h"
+          - window: bull-market
+            start_utc: "2024-01-01T00:00:00Z"
+            end_utc: "2025-01-01T00:00:00Z"
+            interval: "1h"
+          - window: bull-market
+            start_utc: "2024-01-01T00:00:00Z"
+            end_utc: "2025-01-01T00:00:00Z"
+            interval: "4h"
+    steps:
+      - name: Check out the exact commit under evaluation
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        run: python -m pip install -e .
+      - name: Download, validate, and evaluate the pre-registered window
+        env:
+          START_UTC: ${{ matrix.start_utc }}
+          END_UTC: ${{ matrix.end_utc }}
+          INTERVAL: ${{ matrix.interval }}
+          WINDOW: ${{ matrix.window }}
+          FEE_RATE: ${{ inputs.fee_rate }}
+          SLIPPAGE_BPS: ${{ inputs.slippage_bps }}
+          CODE_COMMIT: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from btc_signal_lab.market_data import download_binance_klines, save_dataset
+          from btc_signal_lab.evaluation import evaluate_dataset, write_report
+
+          start, end = os.environ["START_UTC"], os.environ["END_UTC"]
+          interval = os.environ["INTERVAL"]
+          fee_rate, slippage_bps = float(os.environ["FEE_RATE"]), float(os.environ["SLIPPAGE_BPS"])
+          out = Path("validation-artifacts")
+          out.mkdir(parents=True, exist_ok=True)
+          stem = f"BTCUSDT_{os.environ['WINDOW']}_{interval}"
+          csv_path = out / f"{stem}.csv"
+
+          rows = download_binance_klines("BTCUSDT", interval, start, end)
+          manifest = save_dataset(rows, csv_path, symbol="BTCUSDT", interval=interval, start=start, end=end)
+          report = evaluate_dataset(csv_path, initial_capital=10000.0, fee_rate=fee_rate, slippage_bps=slippage_bps)
+          report["validation_protocol"] = {
+              "protocol_version": "1.0",
+              "window": os.environ["WINDOW"],
+              "code_commit": os.environ["CODE_COMMIT"],
+              "parameters_frozen": True,
+              "parameter_tuning_on_this_window": False,
+              "flat_no_trade_baseline": {
+                  "net_return_pct": 0.0,
+                  "max_drawdown_pct": 0.0,
+                  "trade_count": 0,
+                  "note": "Cash-only baseline; no fees because no trades occur."
+              }
+          }
+          report_path = out / f"{stem}.report.json"
+          write_report(report, report_path)
+          summary = {
+              "protocol_version": "1.0",
+              "window": os.environ["WINDOW"],
+              "code_commit": os.environ["CODE_COMMIT"],
+              "dataset": report["dataset"],
+              "assumptions": report["assumptions"],
+              "strategy": report["results"],
+              "buy_and_hold": report["benchmark"],
+              "comparison": report["comparison"],
+              "flat_no_trade": report["validation_protocol"]["flat_no_trade_baseline"],
+              "forward_horizon": report["forward_horizon"],
+          }
+          summary_path = out / f"{stem}.summary.json"
+          summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\\n", encoding="utf-8")
+          checked = json.loads(summary_path.read_text(encoding="utf-8"))
+          for key in ("net_return_pct", "max_drawdown_pct", "trade_count", "win_rate_pct", "profit_factor", "average_trade_return_pct", "average_holding_bars", "exposure_pct"):
+              assert key in checked["strategy"], f"missing strategy metric: {key}"
+          assert checked["dataset"]["csv_sha256"] == manifest["csv_sha256"]
+          assert checked["comparison"]["strategy_minus_benchmark_return_pct"] is not None
+          print(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False))
+          PY
+      - name: Upload frozen reproducibility bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-regime-${{ matrix.window }}-${{ matrix.interval }}-${{ github.run_id }}
+          path: validation-artifacts/
+          if-no-files-found: error
+          retention-days: 90
