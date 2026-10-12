@@ -12,6 +12,7 @@ from typing import Any
 from .backtest import run_backtest
 from .benchmark import run_buy_and_hold
 from .market_data import INTERVAL_MS, parse_utc
+from .horizon_evaluator import evaluate_forward_horizon
 
 
 def load_verified_dataset(csv_path: str | Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -124,6 +125,10 @@ def evaluate_dataset(
         # Keep the pre-1.1 strategy result fields at results.* for compatibility.
         "results": strategy,
         "benchmark": benchmark,
+        "forward_horizon": (
+            evaluate_forward_horizon(candles, horizon_bars=24)
+            if len(candles) > 24 else None
+        ),
         "comparison": {
             "strategy_minus_benchmark_return_pct": (
                 strategy["net_return_pct"] - benchmark["net_return_pct"]
