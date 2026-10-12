@@ -1,7 +1,7 @@
 """BTC signal lab paper-trading analysis primitives."""
 from .aggregator import aggregate_signals
 from .paper_trading import PaperTrader
-from .signal_engine import atr, ema, generate_signal, macd, rsi, to_json
+from .signal_engine import atr, ema, generate_signal, macd, rsi, to_json, volume_indicators
 
 __all__ = [
     "PaperTrader",
@@ -12,4 +12,5 @@ __all__ = [
     "macd",
     "rsi",
     "to_json",
+    "volume_indicators",
 ]
