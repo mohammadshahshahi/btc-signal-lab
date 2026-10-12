@@ -78,7 +78,7 @@ class IndicatorTests(unittest.TestCase):
         self.assertEqual(result["symbol"], "BTC/USDT")
         self.assertEqual(set(result["indicators"]), {
             "ema20", "ema50", "rsi14", "macd", "macd_signal",
-            "macd_histogram", "atr14"
+            "macd_histogram", "atr14", "volume_sma20", "volume_ratio"
         })
         self.assertEqual(json.loads(to_json(result)), result)
 
