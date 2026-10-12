@@ -172,6 +172,29 @@ def atr(candles: Sequence[Candle], period: int = 14) -> list[float | None]:
     return out
 
 
+def volume_indicators(candles: Sequence[Candle], period: int = 20) -> tuple[float | None, float | None]:
+    """Return latest volume SMA and volume/SMA ratio; volume is optional."""
+    period = _validate_period(period, "period")
+    if not isinstance(candles, Sequence) or isinstance(candles, (str, bytes)):
+        raise TypeError("candles must be a sequence")
+    has_volume = ["volume" in candle for candle in candles if isinstance(candle, Mapping)]
+    if not has_volume or not any(has_volume):
+        return None, None
+    if not all(has_volume) or len(has_volume) != len(candles):
+        raise ValueError("volume must be present on every candle or none")
+    volumes: list[float] = []
+    for i, candle in enumerate(candles):
+        volume = _number(candle["volume"], "volume", i)
+        if volume < 0:
+            raise ValueError(f"candle[{i}].volume must be non-negative")
+        volumes.append(volume)
+    if len(volumes) < period:
+        return None, None
+    average = sum(volumes[-period:]) / period
+    ratio = volumes[-1] / average if average > 0 else None
+    return average, ratio
+
+
 def _latest(values: Sequence[float | None]) -> float | None:
     return values[-1] if values else None
 
@@ -199,6 +222,7 @@ def generate_signal(
     rsi14 = rsi(closes, 14)
     macd_line, macd_signal, macd_hist = macd(closes)
     atr14 = atr(candles, 14)
+    volume_sma20, volume_ratio = volume_indicators(candles, 20)
     values = {
         "ema20": _latest(ema20),
         "ema50": _latest(ema50),
@@ -207,8 +231,11 @@ def generate_signal(
         "macd_signal": _latest(macd_signal),
         "macd_histogram": _latest(macd_hist),
         "atr14": _latest(atr14),
+        "volume_sma20": volume_sma20,
+        "volume_ratio": volume_ratio,
     }
-    ready = all(value is not None and isfinite(value) for value in values.values())
+    required = [value for key, value in values.items() if key not in {"volume_sma20", "volume_ratio"}]
+    ready = all(value is not None and isfinite(value) for value in required)
     close = closes[-1]
     signal = "HOLD"
     reasons: list[str] = []
