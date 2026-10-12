@@ -34,7 +34,9 @@ Call `generate_signal(candles, symbol="BTC/USDT", timeframe="1h")`.
     "macd": null,
     "macd_signal": null,
     "macd_histogram": null,
-    "atr14": null
+    "atr14": null,
+    "volume_sma20": null,
+    "volume_ratio": null
   },
   "reasons": ["insufficient_history"]
 }
@@ -54,6 +56,9 @@ Infinity are never emitted. `to_json` emits deterministic compact JSON.
   MACD minus signal. Component EMAs use the same SMA seed.
 - ATR14: Wilder smoothing of true range, seeded with the first 14 true ranges;
   the first candle's true range is high minus low.
+- Optional volume metrics: when volume is present on every candle, report the
+  20-candle simple moving average and latest-volume / average-volume ratio.
+  Volume is not required by v1.0 callers and is not a directional signal by itself.
 
 ## Baseline signal rules
 
