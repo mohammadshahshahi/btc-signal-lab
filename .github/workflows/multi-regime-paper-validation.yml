@@ -8,13 +8,6 @@ on:
       - "src/**"
       - "docs/multi-regime-validation-protocol.md"
       - "pyproject.toml"
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/multi-regime-paper-validation.yml"
-      - "src/**"
-      - "docs/multi-regime-validation-protocol.md"
-      - "pyproject.toml"
   workflow_dispatch:
     inputs:
       fee_rate:
