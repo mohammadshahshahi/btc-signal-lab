@@ -19,7 +19,8 @@ from urllib.request import Request, urlopen
 INTERVAL_MS = {"1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 BINANCE_KLINES_URL = "https://data-api.binance.vision/api/v3/klines"
 BINANCE_KLINES_FALLBACK_URL = "https://api.binance.com/api/v3/klines"
-BINANCE_KLINES_SOURCES = (BINANCE_KLINES_URL, BINANCE_KLINES_FALLBACK_URL)
+KUCOIN_KLINES_URL = "https://api.kucoin.com/api/v1/market/candles"
+BINANCE_KLINES_SOURCES = (BINANCE_KLINES_URL, BINANCE_KLINES_FALLBACK_URL, KUCOIN_KLINES_URL)
 CSV_FIELDS = ["timestamp", "open", "high", "low", "close", "volume"]
 
 
@@ -124,6 +125,50 @@ def _download_from_source(symbol: str, interval: str, start_ms: int, end_ms: int
     return rows
 
 
+def _download_from_kucoin(symbol: str, interval: str, start_ms: int, end_ms: int,
+                          timeout: float) -> list[dict[str, Any]]:
+    """Download one contiguous window from KuCoin public spot candles as a fallback."""
+    interval_type = {"1h": "1hour", "4h": "4hour", "1d": "1day"}[interval]
+    step = INTERVAL_MS[interval]
+    cursor = start_ms
+    raw_rows: list[list[Any]] = []
+    while cursor < end_ms:
+        chunk_end = min(cursor + step * 1000, end_ms)
+        query = urlencode({
+            "symbol": "BTC-USDT" if symbol.strip().upper() == "BTCUSDT" else symbol.strip().upper(),
+            "type": interval_type,
+            "startAt": cursor // 1000,
+            "endAt": (chunk_end - step) // 1000,
+        })
+        request = Request(
+            f"{KUCOIN_KLINES_URL}?{query}",
+            headers={"User-Agent": "btc-signal-lab-public-data/0.2"},
+        )
+        with urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, dict) or payload.get("code") != "200000" or not isinstance(payload.get("data"), list):
+            raise ValueError(f"unexpected KuCoin response: {payload!r}")
+        batch = payload["data"]
+        # KuCoin returns [time seconds, open, close, high, low, volume, turnover].
+        for item in batch:
+            if not isinstance(item, list) or len(item) < 6:
+                raise ValueError("KuCoin candle row has an invalid shape")
+            raw_rows.append([
+                int(item[0]) * 1000, item[1], item[3], item[4], item[2], item[5]
+            ])
+        cursor = chunk_end
+        if cursor < end_ms:
+            time.sleep(0.05)
+
+    rows = normalize_klines(raw_rows, start_ms, end_ms, interval)
+    expected_count = (end_ms - start_ms) // step
+    if not rows or rows[0]["timestamp_ms"] != start_ms:
+        raise ValueError("KuCoin dataset does not begin at requested candle boundary")
+    if rows[-1]["timestamp_ms"] != end_ms - step or len(rows) != expected_count:
+        raise ValueError(f"KuCoin dataset is incomplete: expected {expected_count} candles, received {len(rows)}")
+    return rows
+
+
 def download_binance_klines_with_source(
     symbol: str, interval: str, start: str, end: str, *, timeout: float = 30.0,
     sources: Sequence[str] = BINANCE_KLINES_SOURCES,
@@ -151,10 +196,16 @@ def download_binance_klines_with_source(
     failures: list[str] = []
     for source_url in sources:
         try:
-            return _download_from_source(symbol, interval, start_ms, end_ms, source_url, timeout), source_url
+            if source_url == KUCOIN_KLINES_URL:
+                if symbol.strip().upper() not in {"BTCUSDT", "BTC-USDT"}:
+                    raise ValueError("KuCoin fallback currently supports BTCUSDT only")
+                rows = _download_from_kucoin(symbol, interval, start_ms, end_ms, timeout)
+            else:
+                rows = _download_from_source(symbol, interval, start_ms, end_ms, source_url, timeout)
+            return rows, source_url
         except Exception as exc:
             failures.append(f"{source_url}: {type(exc).__name__}: {exc}")
-    raise ValueError("all Binance public sources failed strict dataset validation: " + " | ".join(failures))
+    raise ValueError("all public market-data sources failed strict dataset validation: " + " | ".join(failures))
 
 
 def download_binance_klines(symbol: str, interval: str, start: str, end: str,
