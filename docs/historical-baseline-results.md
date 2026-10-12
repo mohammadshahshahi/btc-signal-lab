@@ -41,3 +41,32 @@ The workflow artifact contains the normalized CSV, adjacent JSON manifest, compl
 This first run used the Binance public market-data mirror after the standard API endpoint returned HTTP 451 from the GitHub-hosted runner. No API key or exchange credential was used. No live order was placed.
 
 Before any stronger scientific conclusion, evaluate multiple distinct regimes with a predeclared train/validation/test split, compare against buy-and-hold and simple baselines, report trade-level costs and risk metrics, and avoid selecting parameters on the final test window.
+
+
+## v1.1 continuous-score rerun
+
+The following run uses the same frozen BTCUSDT 1h dataset and cost assumptions,
+but evaluates the v1.1 continuous-score implementation. It supersedes the
+earlier v1.0 signal-rule figures above for comparisons against the current
+branch; both historical records are retained for traceability.
+
+- Workflow: [Signal Engine Unit Tests / historical-paper-backtest](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/38258835233)
+- Commit: `5399edaf41a0532cc16b9ae3c47a39710fd5adec`
+- Artifact: [Download v1.1 reproducibility bundle](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/38258835233/artifacts/11751162061)
+- Artifact name: `btcusdt-paper-backtest-38258835233`
+- Dataset: unchanged 744-candle window and SHA-256 listed above
+- Costs: 0.1% fee per side and 5 bps slippage per side
+
+| Metric | v1.1 strategy | Buy-and-hold benchmark |
+|---|---:|---:|
+| Final equity | 8,842.72 | 10,817.96 |
+| Net return | -11.57% | +8.18% |
+| Maximum drawdown | 17.68% | 11.25% |
+| Closed trades | 10 | — |
+| Win rate | 10.00% | — |
+
+The strategy underperformed buy-and-hold by **19.75 percentage points** in this
+one-month window. The v1.1 result is still negative and does not support a
+profitability claim. This is one short historical sample, and the strategy
+parameters were not selected or validated on independent regimes. The report
+is a research baseline only.
