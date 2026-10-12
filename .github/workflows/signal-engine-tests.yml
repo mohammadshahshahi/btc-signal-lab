@@ -79,11 +79,14 @@ jobs:
               "benchmark_results": report["benchmark"],
               "comparison": report["comparison"],
           }
-          (out / "summary.json").write_text(
-              json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\\n",
-              encoding="utf-8",
-          )
-          print(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False))
+          summary_path = out / "summary.json"
+          summary_text = json.dumps(summary, indent=2, sort_keys=True, allow_nan=False)
+          summary_path.write_text(summary_text + "\n", encoding="utf-8")
+          # Fail the workflow if the published summary is not valid JSON or lacks metrics.
+          validated = json.loads(summary_path.read_text(encoding="utf-8"))
+          assert validated["benchmark_results"]["net_return_pct"] is not None
+          assert validated["comparison"]["strategy_minus_benchmark_return_pct"] is not None
+          print(summary_text)
           PY
       - name: Upload reproducibility bundle (data is not committed)
         uses: actions/upload-artifact@v4
