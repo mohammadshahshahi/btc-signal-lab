@@ -24,6 +24,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: multi-regime-validation-${{ github.ref }}
+  cancel-in-progress: true
+
 # Pre-registered chronological windows. Do not tune weights/thresholds on these results.
 jobs:
   evaluate-window:
