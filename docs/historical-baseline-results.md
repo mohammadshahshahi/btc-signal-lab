@@ -50,10 +50,10 @@ but evaluates the v1.1 continuous-score implementation. It supersedes the
 earlier v1.0 signal-rule figures above for comparisons against the current
 branch; both historical records are retained for traceability.
 
-- Workflow: [Signal Engine Unit Tests / historical-paper-backtest](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/38258835233)
-- Commit: `5399edaf41a0532cc16b9ae3c47a39710fd5adec`
-- Artifact: [Download v1.1 reproducibility bundle](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/38258835233/artifacts/11751162061)
-- Artifact name: `btcusdt-paper-backtest-38258835233`
+- Workflow: [Signal Engine Unit Tests / historical-paper-backtest](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/38259035103)
+- Commit: `c027bd016589eb09fa70ef4176b11485f1f85a85`
+- Artifact: [Download v1.1 reproducibility bundle](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/38259035103/artifacts/11751816818)
+- Artifact name: `btcusdt-paper-backtest-38259035103`
 - Dataset: unchanged 744-candle window and SHA-256 listed above
 - Costs: 0.1% fee per side and 5 bps slippage per side
 
@@ -70,3 +70,10 @@ one-month window. The v1.1 result is still negative and does not support a
 profitability claim. This is one short historical sample, and the strategy
 parameters were not selected or validated on independent regimes. The report
 is a research baseline only.
+
+
+The latest report bundle also includes the 24-bar forward-direction diagnostic
+introduced in report schema 1.2. The artifact above is the canonical v1.1
+reproducibility bundle for this PR head; the historical return figures remain
+the same as the preceding v1.1 smoke run because the scoring and backtest logic
+did not change in the report-integration commits.
