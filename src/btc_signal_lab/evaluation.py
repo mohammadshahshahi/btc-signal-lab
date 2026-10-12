@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,19 @@ def load_verified_dataset(csv_path: str | Path) -> tuple[list[dict[str, Any]], d
                 }
             except (TypeError, ValueError, OverflowError) as exc:
                 raise ValueError(f"invalid CSV row {index + 2}") from exc
+
+            prices = (candle["open"], candle["high"], candle["low"], candle["close"])
+            volume = candle["volume"]
+            if not all(math.isfinite(value) for value in (*prices, volume)):
+                raise ValueError(f"CSV row {index + 2} contains non-finite OHLCV data")
+            if min(prices) <= 0 or volume < 0:
+                raise ValueError(f"CSV row {index + 2} has non-positive prices or negative volume")
+            if (
+                candle["high"] < candle["low"]
+                or not candle["low"] <= candle["open"] <= candle["high"]
+                or not candle["low"] <= candle["close"] <= candle["high"]
+            ):
+                raise ValueError(f"CSV row {index + 2} has inconsistent OHLC values")
             rows.append(candle)
 
     step = INTERVAL_MS[interval]
