@@ -27,6 +27,7 @@ class AggregatorTests(unittest.TestCase):
         self.assertEqual(result["score"], 100.0)
         self.assertEqual(result["signal"], "BUY")
         self.assertEqual(result["horizon"], "24h")
+        self.assertEqual(result["direction"], "LONG")
 
     def test_numeric_scores_are_supported(self):
         data = [
