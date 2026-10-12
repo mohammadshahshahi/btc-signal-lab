@@ -130,7 +130,7 @@ jobs:
               "forward_horizon": report["forward_horizon"],
           }
           summary_path = out / f"{stem}.summary.json"
-          summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\\n", encoding="utf-8")
+          summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
           checked = json.loads(summary_path.read_text(encoding="utf-8"))
           for key in ("net_return_pct", "max_drawdown_pct", "trade_count", "win_rate_pct", "profit_factor", "average_trade_return_pct", "average_holding_bars", "exposure_pct"):
               assert key in checked["strategy"], f"missing strategy metric: {key}"
