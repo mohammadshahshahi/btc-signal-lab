@@ -35,6 +35,21 @@ The workflow runs each of the six window/timeframe combinations independently an
 
 Do not aggregate the six outputs into a profitability claim until all six artifacts are available and reviewed. Report every window, including losses and failed downloads. A window is not silently dropped if its data source fails; the workflow must be rerun or the failure documented.
 
+## Merge gate checklist
+
+The PR must remain Draft until all of the following are true:
+
+- [ ] The primary run completed all six matrix combinations using the frozen default fee and slippage assumptions.
+- [ ] All six reproducibility artifacts are present and linked from the PR.
+- [ ] Every window's dataset row count, UTC boundaries, candle continuity, source URL, and SHA-256 are verified.
+- [ ] Strategy return, maximum drawdown, trade count, win rate, profit factor, exposure, and average trade metrics are reviewed for every window.
+- [ ] Results are compared against both cost-aware buy-and-hold and the cash-only baseline.
+- [ ] Failed or missing matrix jobs are documented and rerun; no window is silently omitted.
+- [ ] No strategy parameters were tuned against these held-out windows.
+- [ ] The final PR description records the validation run URL, evaluated commit SHA, artifact links, and limitations.
+
+A green unit-test workflow or a successful single-window smoke test does not satisfy this gate. If any result is negative or inconclusive, report it as such; do not change thresholds to make these same held-out windows pass. Parameter changes require a new strategy version and untouched evaluation data.
+
 ## Limitations
 
 This is a research validation gate, not investment advice or a promise of future performance. The 24-bar forward-horizon diagnostic has overlapping observations and is not fill-level PnL. Results remain sensitive to fees, slippage, spot-market microstructure, and the long-only assumption. A buy-and-hold comparator is descriptive and not risk-adjusted by itself. Parameters must not be selected using these held-out windows.
