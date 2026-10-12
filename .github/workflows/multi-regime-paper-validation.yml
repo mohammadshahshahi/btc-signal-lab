@@ -28,7 +28,7 @@ concurrency:
   group: multi-regime-validation-${{ github.ref }}
   cancel-in-progress: true
 
-# Pre-registered chronological windows. Do not tune weights/thresholds on these results.
+# Existing chronological windows are validation evidence, not an untouched final test. Do not tune weights/thresholds on these results.
 jobs:
   evaluate-window:
     name: ${{ matrix.window }} / ${{ matrix.interval }}
@@ -100,7 +100,9 @@ jobs:
           manifest = save_dataset(rows, csv_path, symbol="BTCUSDT", interval=interval, start=start, end=end, source_url=source_url)
           report = evaluate_dataset(csv_path, initial_capital=10000.0, fee_rate=fee_rate, slippage_bps=slippage_bps)
           report["validation_protocol"] = {
-              "protocol_version": "1.0",
+              "protocol_version": "1.1",
+              "data_partition": "validation",
+              "untouched_final_test": False,
               "window": os.environ["WINDOW"],
               "code_commit": os.environ["CODE_COMMIT"],
               "parameters_frozen": True,
@@ -115,7 +117,9 @@ jobs:
           report_path = out / f"{stem}.report.json"
           write_report(report, report_path)
           summary = {
-              "protocol_version": "1.0",
+              "protocol_version": "1.1",
+              "data_partition": "validation",
+              "untouched_final_test": False,
               "window": os.environ["WINDOW"],
               "code_commit": os.environ["CODE_COMMIT"],
               "dataset": report["dataset"],
