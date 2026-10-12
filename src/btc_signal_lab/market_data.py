@@ -18,6 +18,8 @@ from urllib.request import Request, urlopen
 
 INTERVAL_MS = {"1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 BINANCE_KLINES_URL = "https://data-api.binance.vision/api/v3/klines"
+BINANCE_KLINES_FALLBACK_URL = "https://api.binance.com/api/v3/klines"
+BINANCE_KLINES_SOURCES = (BINANCE_KLINES_URL, BINANCE_KLINES_FALLBACK_URL)
 CSV_FIELDS = ["timestamp", "open", "high", "low", "close", "volume"]
 
 
@@ -76,21 +78,10 @@ def normalize_klines(payload: Sequence[Sequence[Any]], start_ms: int, end_ms: in
     return rows
 
 
-def download_binance_klines(symbol: str, interval: str, start: str, end: str,
-                            *, timeout: float = 30.0) -> list[dict[str, Any]]:
-    """Download public candles for an explicit UTC interval, paginating at 1000 rows."""
-    if not isinstance(symbol, str) or not symbol.strip() or not symbol.isalnum():
-        raise ValueError("symbol must be an alphanumeric spot symbol such as BTCUSDT")
-    if interval not in INTERVAL_MS:
-        raise ValueError(f"supported intervals: {', '.join(INTERVAL_MS)}")
-    start_dt, end_dt = parse_utc(start), parse_utc(end)
-    start_ms, end_ms = int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000)
+def _download_from_source(symbol: str, interval: str, start_ms: int, end_ms: int,
+                          source_url: str, timeout: float) -> list[dict[str, Any]]:
+    """Fetch and fully validate one source; never patch or interpolate missing candles."""
     step = INTERVAL_MS[interval]
-    if end_ms <= start_ms:
-        raise ValueError("end must be later than start")
-    if start_ms % step or end_ms % step:
-        raise ValueError(f"start and end must align to {interval} candle boundaries")
-
     raw_rows: list[Sequence[Any]] = []
     cursor = start_ms
     while cursor < end_ms:
@@ -102,35 +93,76 @@ def download_binance_klines(symbol: str, interval: str, start: str, end: str,
             "limit": 1000,
         })
         request = Request(
-            f"{BINANCE_KLINES_URL}?{query}",
-            headers={"User-Agent": "btc-signal-lab-public-data/0.1"},
+            f"{source_url}?{query}",
+            headers={"User-Agent": "btc-signal-lab-public-data/0.2"},
         )
         with urlopen(request, timeout=timeout) as response:
             batch = json.loads(response.read().decode("utf-8"))
         if not isinstance(batch, list):
-            raise ValueError(f"unexpected Binance response: {batch!r}")
+            raise ValueError(f"unexpected Binance response from {source_url}: {batch!r}")
         if not batch:
             break
         raw_rows.extend(batch)
         last_open = int(batch[-1][0])
         next_cursor = last_open + step
         if next_cursor <= cursor:
-            raise ValueError("Binance pagination did not advance")
+            raise ValueError(f"Binance pagination did not advance for {source_url}")
         cursor = next_cursor
-        if len(batch) < 1000:
-            break
-        time.sleep(0.05)
+        if cursor < end_ms:
+            time.sleep(0.05)
 
     rows = normalize_klines(raw_rows, start_ms, end_ms, interval)
     if not rows:
-        raise ValueError("no candles returned for the requested range")
+        raise ValueError(f"no candles returned from {source_url}")
     if rows[0]["timestamp_ms"] != start_ms:
-        raise ValueError("dataset does not begin at the requested candle boundary")
+        raise ValueError(f"dataset from {source_url} does not begin at requested candle boundary")
     if rows[-1]["timestamp_ms"] != end_ms - step:
-        raise ValueError("dataset does not reach the final requested candle boundary")
+        raise ValueError(f"dataset from {source_url} does not reach final requested candle boundary")
     expected_count = (end_ms - start_ms) // step
     if len(rows) != expected_count:
-        raise ValueError(f"expected {expected_count} candles but received {len(rows)}")
+        raise ValueError(f"expected {expected_count} candles but received {len(rows)} from {source_url}")
+    return rows
+
+
+def download_binance_klines_with_source(
+    symbol: str, interval: str, start: str, end: str, *, timeout: float = 30.0,
+    sources: Sequence[str] = BINANCE_KLINES_SOURCES,
+) -> tuple[list[dict[str, Any]], str]:
+    """Download verified candles, trying a second public Binance endpoint if needed.
+
+    Each source is independently validated for completeness and continuity. No
+    candles are fabricated, interpolated, or silently removed. The URL that
+    supplied the accepted dataset is returned for provenance manifests.
+    """
+    if not isinstance(symbol, str) or not symbol.strip() or not symbol.isalnum():
+        raise ValueError("symbol must be an alphanumeric spot symbol such as BTCUSDT")
+    if interval not in INTERVAL_MS:
+        raise ValueError(f"supported intervals: {', '.join(INTERVAL_MS)}")
+    if not sources:
+        raise ValueError("at least one public Binance data source is required")
+    start_dt, end_dt = parse_utc(start), parse_utc(end)
+    start_ms, end_ms = int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000)
+    step = INTERVAL_MS[interval]
+    if end_ms <= start_ms:
+        raise ValueError("end must be later than start")
+    if start_ms % step or end_ms % step:
+        raise ValueError(f"start and end must align to {interval} candle boundaries")
+
+    failures: list[str] = []
+    for source_url in sources:
+        try:
+            return _download_from_source(symbol, interval, start_ms, end_ms, source_url, timeout), source_url
+        except Exception as exc:
+            failures.append(f"{source_url}: {type(exc).__name__}: {exc}")
+    raise ValueError("all Binance public sources failed strict dataset validation: " + " | ".join(failures))
+
+
+def download_binance_klines(symbol: str, interval: str, start: str, end: str,
+                            *, timeout: float = 30.0) -> list[dict[str, Any]]:
+    """Backward-compatible helper returning verified rows from either public source."""
+    rows, _source_url = download_binance_klines_with_source(
+        symbol, interval, start, end, timeout=timeout
+    )
     return rows
 
 
