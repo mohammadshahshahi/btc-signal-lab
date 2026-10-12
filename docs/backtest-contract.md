@@ -24,7 +24,11 @@ non-contiguous samples in one run.
 
 ## Metrics
 The result contains initial/final equity, net profit, net return, maximum drawdown,
-trade count, win rate, trade ledger, and equity curve. No annualized metrics are
+trade count, win rate, gross profit/loss, profit factor, average trade PnL and
+return, average holding duration in bars, exposure percentage, trade ledger,
+and equity curve. Profit factor is null when there is no gross loss (rather than
+being represented as infinity). Exposure is the percentage of dataset candles
+whose close is marked while a position is open. No annualized metrics are
 reported until timestamp frequency and missing-candle handling are validated.
 
 ## Important limitations
