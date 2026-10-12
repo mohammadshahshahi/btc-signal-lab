@@ -81,6 +81,18 @@ class MultiWindowEvaluationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "start_utc mismatch"):
                 evaluate_windows([first], code_commit="abc123")
 
+    def test_same_final_test_period_is_allowed_for_each_timeframe(self):
+        with tempfile.TemporaryDirectory() as root:
+            hourly = self._dataset(root, "test-1h", 0, interval="1h", count=16)
+            four_hour = self._dataset(root, "test-4h", 0, interval="4h", count=4)
+            hourly["partition"] = "test"
+            four_hour["partition"] = "test"
+            report = evaluate_windows([hourly, four_hour], code_commit="abc123")
+            self.assertEqual(
+                [item["window"]["interval"] for item in report["windows"]],
+                ["1h", "4h"],
+            )
+
     def test_identical_inputs_produce_identical_json_bytes(self):
         with tempfile.TemporaryDirectory() as root:
             first = self._dataset(root, "train", 0)
