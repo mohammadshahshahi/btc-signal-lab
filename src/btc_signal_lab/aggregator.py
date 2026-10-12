@@ -85,10 +85,13 @@ def aggregate_signals(signals: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     else:
         decision = "HOLD"
 
+    direction = {"BUY": "LONG", "SELL": "SHORT", "HOLD": "NEUTRAL"}[decision]
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "signal": decision,
+        "direction": direction,
         "score": round(weighted_score, 6),
+        "score_thresholds": {"long": 70.0, "short": 30.0},
         "sample_count": len(recent),
         "weights": [round(weight / total_weight, 8) for weight in weights],
         "window_start": recent[0][0].isoformat(),
