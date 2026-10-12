@@ -44,6 +44,7 @@ def normalize_klines(payload: Sequence[Sequence[Any]], start_ms: int, end_ms: in
         raise TypeError("kline payload must be a sequence")
     step = INTERVAL_MS[interval]
     rows: list[dict[str, Any]] = []
+    previous_opened: int | None = None
     for index, raw in enumerate(payload):
         if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or len(raw) < 6:
             raise ValueError(f"kline[{index}] must contain at least six fields")
@@ -52,6 +53,15 @@ def normalize_klines(payload: Sequence[Sequence[Any]], start_ms: int, end_ms: in
             values = [float(raw[i]) for i in (1, 2, 3, 4, 5)]
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(f"kline[{index}] contains invalid numeric data") from exc
+        # Validate source order before range filtering or normalization. Sorting here
+        # would hide broken pagination / out-of-order payloads from the caller.
+        if previous_opened is not None and opened <= previous_opened:
+            problem = "duplicate" if opened == previous_opened else "out-of-order"
+            raise ValueError(
+                f"kline payload is {problem} at index {index}: "
+                f"timestamp {opened} follows {previous_opened}"
+            )
+        previous_opened = opened
         if not all(math.isfinite(v) for v in values):
             raise ValueError(f"kline[{index}] contains non-finite data")
         open_price, high, low, close, volume = values
@@ -69,10 +79,7 @@ def normalize_klines(payload: Sequence[Sequence[Any]], start_ms: int, end_ms: in
                 "close": close,
                 "volume": volume,
             })
-    rows.sort(key=lambda row: row["timestamp_ms"])
     timestamps = [row["timestamp_ms"] for row in rows]
-    if len(set(timestamps)) != len(timestamps):
-        raise ValueError("dataset contains duplicate candle timestamps")
     for previous, current in zip(timestamps, timestamps[1:]):
         if current - previous != step:
             raise ValueError(f"dataset has a candle gap between {previous} and {current}")
