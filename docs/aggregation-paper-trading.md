@@ -17,8 +17,10 @@ than five snapshots exist.
 A supplied numeric `score` must be finite and within [0, 100]. For compatibility
 with Signal Engine v1.0, a snapshot without a score maps BUY/HOLD/SELL to
 100/50/0. The weighted score maps to BUY at >=70, SELL at <=30, otherwise HOLD.
-The output records its 24-hour intended horizon; it is not a calibrated
-probability or a guarantee of future performance.
+The output includes both the compatibility action label (BUY/SELL/HOLD) and
+the direction alias (LONG/SHORT/NEUTRAL). It records its 24-hour intended
+horizon. The score is a technical-strength index, not a calibrated probability
+or a guarantee of future performance.
 
 ## Paper trading
 
