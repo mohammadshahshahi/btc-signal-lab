@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from btc_signal_lab.evaluation import evaluate_dataset, load_verified_dataset
 from btc_signal_lab.market_data import normalize_klines, save_dataset
@@ -27,7 +28,7 @@ class EvaluationTests(unittest.TestCase):
             rows = [
                 {
                     "timestamp_ms": index * 3600000,
-                    "timestamp": f"1970-01-01T{index:02d}:00:00Z",
+                    "timestamp": (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(hours=index)).isoformat().replace("+00:00", "Z"),
                     "open": 100.0 + index,
                     "high": 102.0 + index,
                     "low": 99.0 + index,
