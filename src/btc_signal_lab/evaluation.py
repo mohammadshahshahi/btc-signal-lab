@@ -108,7 +108,7 @@ def evaluate_dataset(
         "csv_sha256", "source", "retrieved_at_utc",
     )
     return {
-        "report_schema_version": "1.1",
+        "report_schema_version": "1.2",
         "dataset": {key: manifest[key] for key in dataset_keys},
         "assumptions": {
             "initial_capital": initial_capital,
