@@ -88,7 +88,7 @@ jobs:
           import json
           import os
           from pathlib import Path
-          from btc_signal_lab.market_data import download_binance_klines, save_dataset
+          from btc_signal_lab.market_data import download_binance_klines_with_source, save_dataset
           from btc_signal_lab.evaluation import evaluate_dataset, write_report
 
           start, end = os.environ["START_UTC"], os.environ["END_UTC"]
@@ -99,8 +99,8 @@ jobs:
           stem = f"BTCUSDT_{os.environ['WINDOW']}_{interval}"
           csv_path = out / f"{stem}.csv"
 
-          rows = download_binance_klines("BTCUSDT", interval, start, end)
-          manifest = save_dataset(rows, csv_path, symbol="BTCUSDT", interval=interval, start=start, end=end)
+          rows, source_url = download_binance_klines_with_source("BTCUSDT", interval, start, end)
+          manifest = save_dataset(rows, csv_path, symbol="BTCUSDT", interval=interval, start=start, end=end, source_url=source_url)
           report = evaluate_dataset(csv_path, initial_capital=10000.0, fee_rate=fee_rate, slippage_bps=slippage_bps)
           report["validation_protocol"] = {
               "protocol_version": "1.0",
