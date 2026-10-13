@@ -1,11 +1,15 @@
+import csv
+import io
 import json
+import zipfile
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from btc_signal_lab.market_data import (
-    _download_from_kucoin, normalize_klines, parse_utc, save_dataset,
+    BINANCE_ARCHIVE_SOURCE, _download_from_binance_archive, _download_from_kucoin,
+    normalize_klines, parse_utc, save_dataset,
 )
 
 
@@ -80,6 +84,50 @@ class MarketDataTests(unittest.TestCase):
             [0, 3_600_000, 7_200_000],
         )
         self.assertEqual([row["open"] for row in rows], [100.0, 101.0, 102.0])
+
+    def test_binance_archive_zip_is_parsed_and_strictly_validated(self):
+        # Build a deterministic monthly archive fixture; no live network needed.
+        csv_buffer = io.StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(["open_time", "open", "high", "low", "close", "volume"])
+        writer.writerow([0, "100", "102", "99", "101", "10"])
+        writer.writerow([3_600_000, "101", "103", "100", "102", "11"])
+        writer.writerow([7_200_000, "102", "104", "101", "103", "12"])
+        archive_buffer = io.BytesIO()
+        with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("BTCUSDT-1h-1970-01.csv", csv_buffer.getvalue())
+        archive_bytes = archive_buffer.getvalue()
+
+        with patch("btc_signal_lab.market_data.urlopen") as mocked_urlopen:
+            mocked_urlopen.return_value.__enter__.return_value.read.return_value = archive_bytes
+            rows = _download_from_binance_archive(
+                "BTCUSDT", "1h", 0, 10_800_000, timeout=1.0
+            )
+
+        self.assertEqual([row["timestamp_ms"] for row in rows], [0, 3_600_000, 7_200_000])
+        self.assertEqual([row["close"] for row in rows], [101.0, 102.0, 103.0])
+        requested_url = mocked_urlopen.call_args.args[0].full_url
+        self.assertEqual(
+            requested_url,
+            f"{BINANCE_ARCHIVE_SOURCE}/BTCUSDT/1h/BTCUSDT-1h-1970-01.zip",
+        )
+
+    def test_binance_archive_gap_is_rejected_not_filled(self):
+        csv_buffer = io.StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(["open_time", "open", "high", "low", "close", "volume"])
+        writer.writerow([0, "100", "102", "99", "101", "10"])
+        writer.writerow([7_200_000, "102", "104", "101", "103", "12"])
+        archive_buffer = io.BytesIO()
+        with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("BTCUSDT-1h-1970-01.csv", csv_buffer.getvalue())
+
+        with patch("btc_signal_lab.market_data.urlopen") as mocked_urlopen:
+            mocked_urlopen.return_value.__enter__.return_value.read.return_value = archive_buffer.getvalue()
+            with self.assertRaisesRegex(ValueError, "candle gap"):
+                _download_from_binance_archive(
+                    "BTCUSDT", "1h", 0, 10_800_000, timeout=1.0
+                )
 
     def test_save_writes_manifest_and_hash(self):
         rows = normalize_klines([[0, "100", "102", "99", "101", "10"]],
