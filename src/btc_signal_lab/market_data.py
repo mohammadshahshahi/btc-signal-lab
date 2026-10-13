@@ -204,17 +204,27 @@ def download_binance_klines_with_source(
         raise ValueError(f"start and end must align to {interval} candle boundaries")
 
     failures: list[str] = []
+    # Retry the same provider before switching venues: intermittent truncated
+    # responses must not immediately force a cross-exchange fallback. Every
+    # attempt is independently validated and no missing candle is synthesized.
+    attempts_per_source = 2
     for source_url in sources:
-        try:
-            if source_url == KUCOIN_KLINES_URL:
-                if symbol.strip().upper() not in {"BTCUSDT", "BTC-USDT"}:
-                    raise ValueError("KuCoin fallback currently supports BTCUSDT only")
-                rows = _download_from_kucoin(symbol, interval, start_ms, end_ms, timeout)
-            else:
-                rows = _download_from_source(symbol, interval, start_ms, end_ms, source_url, timeout)
-            return rows, source_url
-        except Exception as exc:
-            failures.append(f"{source_url}: {type(exc).__name__}: {exc}")
+        for attempt in range(1, attempts_per_source + 1):
+            try:
+                if source_url == KUCOIN_KLINES_URL:
+                    if symbol.strip().upper() not in {"BTCUSDT", "BTC-USDT"}:
+                        raise ValueError("KuCoin fallback currently supports BTCUSDT only")
+                    rows = _download_from_kucoin(symbol, interval, start_ms, end_ms, timeout)
+                else:
+                    rows = _download_from_source(symbol, interval, start_ms, end_ms, source_url, timeout)
+                return rows, source_url
+            except Exception as exc:
+                failures.append(
+                    f"{source_url} (attempt {attempt}/{attempts_per_source}): "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                if attempt < attempts_per_source:
+                    time.sleep(0.25)
     raise ValueError("all public market-data sources failed strict dataset validation: " + " | ".join(failures))
 
 
