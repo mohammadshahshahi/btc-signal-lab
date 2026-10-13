@@ -1,8 +1,12 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from btc_signal_lab.market_data import normalize_klines, parse_utc, save_dataset
+from btc_signal_lab.market_data import (
+    _download_from_kucoin, normalize_klines, parse_utc, save_dataset,
+)
 
 
 class MarketDataTests(unittest.TestCase):
@@ -51,6 +55,31 @@ class MarketDataTests(unittest.TestCase):
         ]
         with self.assertRaisesRegex(ValueError, "duplicate"):
             normalize_klines(rows, 0, 3_600_000, "1h")
+
+    def test_kucoin_newest_first_response_is_normalized_chronologically(self):
+        # KuCoin returns candle rows newest-first; the provider adapter must
+        # normalize that documented order before the strict shared validator.
+        payload = {
+            "code": "200000",
+            "data": [
+                ["7200", "102", "103", "104", "101", "12", "1236"],
+                ["3600", "101", "102", "103", "100", "11", "1122"],
+                ["0", "100", "101", "102", "99", "10", "1010"],
+            ],
+        }
+        with patch("btc_signal_lab.market_data.urlopen") as mocked_urlopen:
+            mocked_urlopen.return_value.__enter__.return_value.read.return_value = (
+                json.dumps(payload).encode("utf-8")
+            )
+            rows = _download_from_kucoin(
+                "BTCUSDT", "1h", 0, 10_800_000, timeout=1.0
+            )
+
+        self.assertEqual(
+            [row["timestamp_ms"] for row in rows],
+            [0, 3_600_000, 7_200_000],
+        )
+        self.assertEqual([row["open"] for row in rows], [100.0, 101.0, 102.0])
 
     def test_save_writes_manifest_and_hash(self):
         rows = normalize_klines([[0, "100", "102", "99", "101", "10"]],
