@@ -2,7 +2,18 @@ name: Multi-Regime Paper Validation
 
 on:
   push:
-    branches: [feat/signal-engine]
+    branches:
+      - feat/signal-engine
+      - "fix/**"
+    paths:
+      - ".github/workflows/multi-regime-paper-validation.yml"
+      - "src/**"
+      - "docs/multi-regime-validation-protocol.md"
+      - "pyproject.toml"
+  pull_request:
+    branches:
+      - main
+      - feat/signal-engine
     paths:
       - ".github/workflows/multi-regime-paper-validation.yml"
       - "src/**"
