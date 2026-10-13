@@ -156,8 +156,11 @@ def _download_from_kucoin(symbol: str, interval: str, start_ms: int, end_ms: int
         if not isinstance(payload, dict) or payload.get("code") != "200000" or not isinstance(payload.get("data"), list):
             raise ValueError(f"unexpected KuCoin response: {payload!r}")
         batch = payload["data"]
-        # KuCoin returns [time seconds, open, close, high, low, volume, turnover].
-        for item in batch:
+        # KuCoin's candle endpoint returns rows newest-first. Normalize this
+        # provider-specific response order explicitly before applying the shared
+        # strict ascending-order validator; do not sort arbitrary input payloads.
+        # Row shape: [time seconds, open, close, high, low, volume, turnover].
+        for item in reversed(batch):
             if not isinstance(item, list) or len(item) < 6:
                 raise ValueError("KuCoin candle row has an invalid shape")
             raw_rows.append([
