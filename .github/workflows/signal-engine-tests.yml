@@ -5,11 +5,13 @@ on:
     branches:
       - main
       - feat/signal-engine
+      - feat/binance-1m-aggregation
       - "fix/**"
   pull_request:
     branches:
       - main
       - feat/signal-engine
+      - "fix/**"
 
 permissions:
   contents: read
