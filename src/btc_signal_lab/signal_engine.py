@@ -1,0 +1,306 @@
+"""Deterministic, long-only-independent technical signal engine for paper trading.
+
+No exchange clients, order execution, credentials, or network access are used.
+Input candles are chronological (oldest first) OHLC mappings with finite numbers.
+"""
+from __future__ import annotations
+
+from math import isfinite, tanh
+from typing import Any, Iterable, Mapping, Sequence
+
+Candle = Mapping[str, Any]
+
+
+def _validate_period(period: int, name: str = "period") -> int:
+    if isinstance(period, bool) or not isinstance(period, int) or period < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return period
+
+
+def _validate_values(values: Sequence[float]) -> list[float]:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise TypeError("values must be a sequence of finite numbers")
+    result: list[float] = []
+    for i, value in enumerate(values):
+        if isinstance(value, bool):
+            raise ValueError(f"values[{i}] must be numeric")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"values[{i}] must be numeric") from exc
+        if not isfinite(number):
+            raise ValueError(f"values[{i}] must be finite")
+        result.append(number)
+    return result
+
+
+def _number(value: Any, field: str, index: int) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"candle[{index}].{field} must be numeric")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"candle[{index}].{field} must be numeric") from exc
+    if not isfinite(result):
+        raise ValueError(f"candle[{index}].{field} must be finite")
+    return result
+
+
+def _validate_candles(candles: Sequence[Candle]) -> tuple[list[float], list[float], list[float]]:
+    if not isinstance(candles, Sequence) or isinstance(candles, (str, bytes)):
+        raise TypeError("candles must be a sequence of OHLC mappings")
+    if not candles:
+        raise ValueError("candles must not be empty")
+    highs: list[float] = []
+    lows: list[float] = []
+    closes: list[float] = []
+    for i, candle in enumerate(candles):
+        if not isinstance(candle, Mapping):
+            raise TypeError(f"candle[{i}] must be a mapping")
+        missing = {"high", "low", "close"} - candle.keys()
+        if missing:
+            raise ValueError(f"candle[{i}] missing required fields: {', '.join(sorted(missing))}")
+        high = _number(candle["high"], "high", i)
+        low = _number(candle["low"], "low", i)
+        close = _number(candle["close"], "close", i)
+        if high < low:
+            raise ValueError(f"candle[{i}].high must be >= low")
+        if not low <= close <= high:
+            raise ValueError(f"candle[{i}].close must be between low and high")
+        highs.append(high)
+        lows.append(low)
+        closes.append(close)
+    return highs, lows, closes
+
+
+def ema(values: Sequence[float], period: int) -> list[float | None]:
+    """EMA seeded by the first period's SMA; earlier positions are None."""
+    period = _validate_period(period)
+    values = _validate_values(values)
+    out: list[float | None] = [None] * len(values)
+    if len(values) < period:
+        return out
+    seed = sum(values[:period]) / period
+    out[period - 1] = seed
+    alpha = 2.0 / (period + 1.0)
+    current = seed
+    for i in range(period, len(values)):
+        current = alpha * float(values[i]) + (1.0 - alpha) * current
+        out[i] = current
+    return out
+
+
+def rsi(values: Sequence[float], period: int = 14) -> list[float | None]:
+    """Wilder RSI. The first value is at index period; flat series yields 50."""
+    period = _validate_period(period)
+    values = _validate_values(values)
+    out: list[float | None] = [None] * len(values)
+    if len(values) <= period:
+        return out
+    gains = [max(values[i] - values[i - 1], 0.0) for i in range(1, len(values))]
+    losses = [max(values[i - 1] - values[i], 0.0) for i in range(1, len(values))]
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    def value(gain: float, loss: float) -> float:
+        if gain == 0.0 and loss == 0.0:
+            return 50.0
+        if loss == 0.0:
+            return 100.0
+        if gain == 0.0:
+            return 0.0
+        return 100.0 - 100.0 / (1.0 + gain / loss)
+
+    out[period] = value(avg_gain, avg_loss)
+    for i in range(period + 1, len(values)):
+        delta_index = i - 1
+        avg_gain = (avg_gain * (period - 1) + gains[delta_index]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[delta_index]) / period
+        out[i] = value(avg_gain, avg_loss)
+    return out
+
+
+def macd(
+    values: Sequence[float], fast_period: int = 12, slow_period: int = 26, signal_period: int = 9
+) -> tuple[list[float | None], list[float | None], list[float | None]]:
+    """Return MACD line, signal line, histogram; SMA-seeded component EMAs."""
+    fast_period = _validate_period(fast_period, "fast_period")
+    slow_period = _validate_period(slow_period, "slow_period")
+    signal_period = _validate_period(signal_period, "signal_period")
+    values = _validate_values(values)
+    if fast_period >= slow_period:
+        raise ValueError("fast_period must be less than slow_period")
+    fast = ema(values, fast_period)
+    slow = ema(values, slow_period)
+    line: list[float | None] = [None] * len(values)
+    for i, (f, s) in enumerate(zip(fast, slow)):
+        if f is not None and s is not None:
+            line[i] = f - s
+    valid_indices = [i for i, item in enumerate(line) if item is not None]
+    signal: list[float | None] = [None] * len(values)
+    hist: list[float | None] = [None] * len(values)
+    if len(valid_indices) < signal_period:
+        return line, signal, hist
+    valid_line = [float(line[i]) for i in valid_indices]
+    valid_signal = ema(valid_line, signal_period)
+    for j, i in enumerate(valid_indices):
+        sig = valid_signal[j]
+        if sig is not None:
+            signal[i] = sig
+            hist[i] = float(line[i]) - sig
+    return line, signal, hist
+
+
+def atr(candles: Sequence[Candle], period: int = 14) -> list[float | None]:
+    """Wilder ATR; first value is the SMA of the first period true ranges."""
+    period = _validate_period(period)
+    highs, lows, closes = _validate_candles(candles)
+    out: list[float | None] = [None] * len(candles)
+    if len(candles) < period:
+        return out
+    true_ranges: list[float] = []
+    for i, (high, low) in enumerate(zip(highs, lows)):
+        if i == 0:
+            true_ranges.append(high - low)
+        else:
+            true_ranges.append(max(high - low, abs(high - closes[i - 1]), abs(low - closes[i - 1])))
+    current = sum(true_ranges[:period]) / period
+    out[period - 1] = current
+    for i in range(period, len(candles)):
+        current = (current * (period - 1) + true_ranges[i]) / period
+        out[i] = current
+    return out
+
+
+def volume_indicators(candles: Sequence[Candle], period: int = 20) -> tuple[float | None, float | None]:
+    """Return latest volume SMA and volume/SMA ratio; volume is optional."""
+    period = _validate_period(period, "period")
+    if not isinstance(candles, Sequence) or isinstance(candles, (str, bytes)):
+        raise TypeError("candles must be a sequence")
+    has_volume = ["volume" in candle for candle in candles if isinstance(candle, Mapping)]
+    if not has_volume or not any(has_volume):
+        return None, None
+    if not all(has_volume) or len(has_volume) != len(candles):
+        raise ValueError("volume must be present on every candle or none")
+    volumes: list[float] = []
+    for i, candle in enumerate(candles):
+        volume = _number(candle["volume"], "volume", i)
+        if volume < 0:
+            raise ValueError(f"candle[{i}].volume must be non-negative")
+        volumes.append(volume)
+    if len(volumes) < period:
+        return None, None
+    average = sum(volumes[-period:]) / period
+    ratio = volumes[-1] / average if average > 0 else None
+    return average, ratio
+
+
+def _latest(values: Sequence[float | None]) -> float | None:
+    return values[-1] if values else None
+
+
+def generate_signal(
+    candles: Sequence[Candle],
+    *,
+    symbol: str = "BTC/USDT",
+    timeframe: str = "1h",
+) -> dict[str, Any]:
+    """Calculate indicators and return a JSON-serializable BUY/SELL/HOLD snapshot.
+
+    The v1.1 directional score combines ATR-normalized EMA trend, price versus
+    EMA20, MACD momentum, and RSI momentum using fixed documented weights.
+    Scores >= 70 yield BUY, scores <= 30 yield SELL, and intermediate scores
+    yield HOLD. These are heuristic baseline rules, not investment advice,
+    calibrated probabilities, or a profitability claim.
+    """
+    if not isinstance(symbol, str) or not symbol.strip():
+        raise ValueError("symbol must be a non-empty string")
+    if not isinstance(timeframe, str) or not timeframe.strip():
+        raise ValueError("timeframe must be a non-empty string")
+    highs, lows, closes = _validate_candles(candles)
+    ema20 = ema(closes, 20)
+    ema50 = ema(closes, 50)
+    rsi14 = rsi(closes, 14)
+    macd_line, macd_signal, macd_hist = macd(closes)
+    atr14 = atr(candles, 14)
+    volume_sma20, volume_ratio = volume_indicators(candles, 20)
+    values = {
+        "ema20": _latest(ema20),
+        "ema50": _latest(ema50),
+        "rsi14": _latest(rsi14),
+        "macd": _latest(macd_line),
+        "macd_signal": _latest(macd_signal),
+        "macd_histogram": _latest(macd_hist),
+        "atr14": _latest(atr14),
+        "volume_sma20": volume_sma20,
+        "volume_ratio": volume_ratio,
+    }
+    required = [value for key, value in values.items() if key not in {"volume_sma20", "volume_ratio"}]
+    ready = all(value is not None and isfinite(value) for value in required)
+    close = closes[-1]
+    signal = "HOLD"
+    score = 50.0
+    score_components = {
+        "trend": 0.0,
+        "price_vs_ema20": 0.0,
+        "macd_momentum": 0.0,
+        "rsi_momentum": 0.0,
+    }
+    reasons: list[str] = []
+    if not ready:
+        reasons.append("insufficient_history")
+    else:
+        e20 = float(values["ema20"])
+        e50 = float(values["ema50"])
+        r = float(values["rsi14"])
+        m = float(values["macd"])
+        ms = float(values["macd_signal"])
+        volatility_scale = max(float(values["atr14"]), abs(close) * 1e-9, 1e-12)
+
+        # Each component is bounded to [-1, 1]. ATR normalization makes the
+        # price/momentum terms comparable across BTC price regimes.
+        score_components = {
+            "trend": tanh(((e20 - e50) / volatility_scale) * 4.0),
+            "price_vs_ema20": tanh(((close - e20) / volatility_scale) * 2.0),
+            "macd_momentum": tanh(((m - ms) / volatility_scale) * 20.0),
+            "rsi_momentum": max(-1.0, min(1.0, (r - 50.0) / 20.0)),
+        }
+        directional_score = (
+            0.35 * score_components["trend"]
+            + 0.20 * score_components["price_vs_ema20"]
+            + 0.25 * score_components["macd_momentum"]
+            + 0.20 * score_components["rsi_momentum"]
+        )
+        score = max(0.0, min(100.0, 50.0 + 50.0 * directional_score))
+        if score >= 70.0:
+            signal = "BUY"
+            reasons.append("bullish_score_threshold")
+        elif score <= 30.0:
+            signal = "SELL"
+            reasons.append("bearish_score_threshold")
+        else:
+            reasons.append("score_neutral")
+
+    direction = {"BUY": "LONG", "SELL": "SHORT", "HOLD": "NEUTRAL"}[signal]
+    return {
+        "schema_version": "1.1",
+        "mode": "paper_trading",
+        "symbol": symbol.strip().upper(),
+        "timeframe": timeframe.strip(),
+        "signal": signal,
+        "direction": direction,
+        "score": round(score, 6),
+        "score_components": {
+            key: round(value, 8) for key, value in score_components.items()
+        },
+        "score_thresholds": {"long": 70.0, "short": 30.0},
+        "price": close,
+        "indicators": values,
+        "reasons": reasons,
+    }
+
+
+def to_json(signal: Mapping[str, Any]) -> str:
+    """Serialize a signal deterministically; reject NaN/Infinity."""
+    import json
+    return json.dumps(signal, allow_nan=False, sort_keys=True, separators=(",", ":"))

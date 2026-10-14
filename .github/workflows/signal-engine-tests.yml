@@ -1,0 +1,97 @@
+name: Signal Engine Unit Tests
+
+on:
+  push:
+    branches:
+      - main
+      - feat/signal-engine
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Run Signal Engine unit tests
+        run: python -m pytest -q
+
+  historical-paper-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        run: python -m pip install -e .
+      - name: Download and evaluate a fixed historical BTCUSDT window
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from btc_signal_lab.market_data import download_binance_klines, save_dataset
+          from btc_signal_lab.evaluation import evaluate_dataset, write_report
+
+          start = "2025-01-01T00:00:00Z"
+          end = "2025-02-01T00:00:00Z"
+          interval = "1h"
+          out = Path("backtest-artifacts")
+          out.mkdir(parents=True, exist_ok=True)
+          csv_path = out / f"BTCUSDT_{interval}.csv"
+
+          rows = download_binance_klines("BTCUSDT", interval, start, end)
+          manifest = save_dataset(
+              rows, csv_path, symbol="BTCUSDT", interval=interval,
+              start=start, end=end,
+          )
+          report = evaluate_dataset(
+              csv_path, initial_capital=10000.0,
+              fee_rate=0.001, slippage_bps=5.0,
+          )
+          write_report(report, out / "report.json")
+          summary = {
+              "dataset_rows": manifest["row_count"],
+              "dataset_sha256": manifest["csv_sha256"],
+              "symbol": manifest["symbol"],
+              "interval": manifest["interval"],
+              "start_utc": manifest["start_utc"],
+              "end_utc_exclusive": manifest["end_utc_exclusive"],
+              "strategy_results": report["results"],
+              "benchmark_results": report["benchmark"],
+              "comparison": report["comparison"],
+          }
+          summary_path = out / "summary.json"
+          summary_text = json.dumps(summary, indent=2, sort_keys=True, allow_nan=False)
+          summary_path.write_text(summary_text + "\n", encoding="utf-8")
+          # Fail the workflow if the published summary is not valid JSON or lacks metrics.
+          validated = json.loads(summary_path.read_text(encoding="utf-8"))
+          assert validated["benchmark_results"]["net_return_pct"] is not None
+          assert validated["comparison"]["strategy_minus_benchmark_return_pct"] is not None
+          print(summary_text)
+          PY
+      - name: Upload reproducibility bundle (data is not committed)
+        uses: actions/upload-artifact@v4
+        with:
+          name: btcusdt-paper-backtest-${{ github.run_id }}
+          path: backtest-artifacts/
+          if-no-files-found: error
+          retention-days: 30
