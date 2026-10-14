@@ -96,7 +96,7 @@ jobs:
           import json
           import os
           from pathlib import Path
-          from btc_signal_lab.market_data import download_binance_klines_with_source, save_dataset
+          from btc_signal_lab.market_data import (\n              BINANCE_ARCHIVE_SOURCE, download_binance_klines_with_source,\n              download_binance_1m_archive_aggregate, save_dataset,\n          )
           from btc_signal_lab.evaluation import evaluate_dataset, write_report
 
           start, end = os.environ["START_UTC"], os.environ["END_UTC"]
