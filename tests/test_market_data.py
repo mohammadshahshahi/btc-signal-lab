@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from btc_signal_lab.market_data import (
-    BINANCE_ARCHIVE_SOURCE, _download_from_binance_archive, _download_from_kucoin,\n    aggregate_minute_klines,
+    BINANCE_ARCHIVE_SOURCE, _download_from_binance_archive, _download_from_kucoin,
+    aggregate_minute_klines,
     normalize_klines, parse_utc, save_dataset,
 )
 
