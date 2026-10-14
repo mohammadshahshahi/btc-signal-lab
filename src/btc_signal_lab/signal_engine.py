@@ -207,10 +207,11 @@ def generate_signal(
 ) -> dict[str, Any]:
     """Calculate indicators and return a JSON-serializable BUY/SELL/HOLD snapshot.
 
-    BUY requires close > EMA20 > EMA50, MACD > signal, positive histogram,
-    and RSI in [50, 70]. SELL mirrors this with close < EMA20 < EMA50,
-    MACD < signal, negative histogram, and RSI in [30, 50]. Otherwise HOLD.
-    These are baseline rules, not investment advice or a profitability claim.
+    The v1.1 directional score combines ATR-normalized EMA trend, price versus
+    EMA20, MACD momentum, and RSI momentum using fixed documented weights.
+    Scores >= 70 yield BUY, scores <= 30 yield SELL, and intermediate scores
+    yield HOLD. These are heuristic baseline rules, not investment advice,
+    calibrated probabilities, or a profitability claim.
     """
     if not isinstance(symbol, str) or not symbol.strip():
         raise ValueError("symbol must be a non-empty string")
