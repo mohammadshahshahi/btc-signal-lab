@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/signal-engine
+      - feat/binance-1m-aggregation
       - "fix/**"
     paths:
       - ".github/workflows/multi-regime-paper-validation.yml"
