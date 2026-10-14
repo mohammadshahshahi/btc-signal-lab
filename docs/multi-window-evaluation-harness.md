@@ -12,7 +12,7 @@ Each item supplied to `evaluate_windows()` must include:
 - `start_utc`: inclusive candle-open boundary
 - `end_utc_exclusive`: exclusive boundary
 
-Windows must be supplied in chronological order and cannot overlap. If a test partition is present, it must be unique and last. The manifest must match BTCUSDT, interval, and exact UTC boundaries; the existing verified-dataset loader validates row count, SHA-256, OHLCV and continuity.
+Windows must be supplied in chronological order and cannot overlap. Within each interval, partition roles may only progress from train to validation to test; they cannot move backwards. If a test partition is present, it must be unique and last. The manifest must match BTCUSDT, interval, and exact UTC boundaries; the existing verified-dataset loader validates row count, SHA-256, OHLCV and continuity.
 
 ## Output
 The report contains per-window strategy results, cost-aware buy-and-hold, flat cash, data provenance, assumptions, and a separately labelled forward-horizon diagnostic. Wall-clock generation timestamps are omitted from the multi-window report so identical frozen inputs, code commit, and parameters produce byte-identical JSON.
