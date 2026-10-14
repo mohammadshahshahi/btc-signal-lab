@@ -61,7 +61,7 @@ class MultiWindowEvaluationTests(unittest.TestCase):
             first = self._dataset(root, "test", 0)
             first["partition"] = "test"
             second = self._dataset(root, "later", 10)
-            with self.assertRaisesRegex(ValueError, "last chronological"):
+            with self.assertRaisesRegex(ValueError, "final test partition must be last"):
                 evaluate_windows([first, second], code_commit="abc123")
             second["partition"] = "test"
             with self.assertRaisesRegex(ValueError, "at most one"):
