@@ -204,7 +204,6 @@ def write_multi_window_report(report: Mapping[str, Any], output_path: str | Path
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "
-",
+        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
