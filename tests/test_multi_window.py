@@ -74,6 +74,15 @@ class MultiWindowEvaluationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "chronological"):
                 evaluate_windows([first, second], code_commit="abc123")
 
+    def test_partition_roles_cannot_move_backwards(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = self._dataset(root, "validation", 0)
+            first["partition"] = "validation"
+            second = self._dataset(root, "later-train", 10)
+            second["partition"] = "train"
+            with self.assertRaisesRegex(ValueError, "partition roles must progress"):
+                evaluate_windows([first, second], code_commit="abc123")
+
     def test_manifest_window_mismatch_fails_closed(self):
         with tempfile.TemporaryDirectory() as root:
             first = self._dataset(root, "first", 0)
