@@ -34,7 +34,7 @@ These are falsifiable research hypotheses, not claims that v2 will outperform.
 Keep the first v2 experiment intentionally small and interpretable. Do not introduce machine learning, dozens of indicators, or unbounded optimization.
 
 Candidate structure:
-1. Trend gate: close above EMA(100) OR EMA(200) (2 choices).
+1. Trend gate: close above EMA(100) OR EMA(200) on the same traded timeframe (2 choices).
 2. Entry momentum gate: RSI(14) >= 50 OR RSI(14) >= 55 (2 choices).
 3. Exit rule: close below EMA(20) OR RSI(14) < 45 (2 choices).
 
@@ -47,20 +47,25 @@ Known exposed evidence:
 - Recovery/1h is unavailable from tested sources and must remain unavailable unless a separately sourced complete dataset passes independent provenance and continuity review.
 - No retrospective relabelling of previously inspected data.
 
-Proposed initial development period: BTCUSDT Spot from the earliest complete, verified Binance history available through 2021-10-31 23:00 UTC. The exact start timestamp, row counts, source provenance, and hashes must be recorded before running any candidate.
+Proposed development dataset: BTCUSDT Spot, UTC interval [2017-08-17 00:00, 2021-11-01 00:00). This start is a proposed listing-era boundary, not a claim that every candle exists; before use, verify the actual first available candle and strict continuity. If the source cannot provide a complete interval, record the missing coverage and do not silently shorten or splice it.
 
-Proposed rolling-origin folds within that pre-exposed period:
-- For each timeframe independently, use expanding chronological training history with a 6-month validation block.
-- Require at least 24 months of training history before the first validation block.
-- Advance the validation origin by 6 months per fold; no random shuffling.
-- Apply a purge/embargo of at least 24 bars on each train/validation boundary for any 24-bar forward-horizon diagnostics. For fill-level portfolio PnL, preserve next-bar execution and ensure no trade/label state crosses a fold boundary.
-- Exact fold dates and expected candle counts must be computed from UTC boundaries and committed before data acquisition.
+Pre-registered rolling-origin folds (end-exclusive UTC boundaries; run independently for 1h and 4h):
+- Initial training: [2017-08-17 00:00, 2019-08-17 00:00).
+- Fold 1 validation: [2019-08-17 00:00, 2020-02-17 00:00).
+- Fold 2 validation: [2020-02-17 00:00, 2020-08-17 00:00).
+- Fold 3 validation: [2020-08-17 00:00, 2021-02-17 00:00).
+- Fold 4 validation: [2021-02-17 00:00, 2021-08-17 00:00).
+- For each fold, training expands from the initial start through the validation start; the final 24 training bars are purged for the 24-bar forward diagnostic. Validation labels whose 24-bar horizon would cross the validation end are excluded from horizon metrics. Portfolio simulations reset to flat at each validation start, do not carry positions across folds, and execute close-generated signals no earlier than the next bar open.
+- The interval [2021-08-17, 2021-11-01) is not silently appended to a partial fifth fold; it remains unused in this initial design.
+- No random shuffling. Expected row counts are derived from each timeframe's UTC boundaries (6, 12, 24, 6 bars/day for 1h/4h as appropriate) only after source coverage is verified; actual counts, missing intervals, retrieval time and SHA-256 must be committed before strategy results are generated.
+
+This fold schedule is a proposal for joint approval. If either contributor has already used any proposed development interval to select/tune strategy logic, disclose that exposure and revise the role rather than claiming independence.
 
 The 2025-02-01 through 2026-02-01 candidate holdout remains sealed. It is not a validation set by default. Before any access, both contributors must independently attest YES/NO/UNSURE to prior exposure and approve exact partition roles. If either answer is YES or UNSURE, or approval is absent, do not call it untouched; choose a later future holdout or explicitly classify it as exposed. No test workflow should exist in an enabled/scheduled state before that gate.
 
 ## 5. Selection objective and rejection criteria
 
-Primary selection statistic: median net Sharpe ratio across validation folds, calculated from a clearly specified periodic equity-return series after costs. Also report fold dispersion and the number of folds with positive net return. Do not optimize raw cumulative return alone.
+Primary selection statistic: median net Sharpe across the four chronological validation folds, computed from the after-cost, bar-to-bar mark-to-market equity return series. Returns include zero-return cash bars. For each timeframe, periods/year = 8,760 for 1h and 2,190 for 4h (365 × bars/day). Risk-free rate is fixed at 0. Sharpe = mean(bar returns) / sample standard deviation(bar returns, ddof=1) × sqrt(periods/year); if standard deviation is zero or fewer than two returns exist, report undefined, not zero. Sortino = mean(bar returns) / downside deviation × sqrt(periods/year), where downside deviation = sqrt(mean(min(return, 0)^2)) over all bars and MAR=0; if downside deviation is zero, report undefined. Annualized volatility = sample standard deviation × sqrt(periods/year). Maximum drawdown is the maximum peak-to-trough decline of the after-cost, bar-close equity curve, including initial equity as the first peak. Report the four fold values, median and interquartile range; do not pool bars across folds. Flat cash has zero volatility and undefined Sharpe/Sortino, not infinite performance. Do not optimize raw cumulative return alone.
 
 A candidate is rejected if any of the following applies:
 - Median validation net Sharpe is not greater than both v1.1 and the EMA(200) trend baseline.
@@ -105,3 +110,14 @@ For every fold, candidate, timeframe, and cost case, report:
 - [ ] No v2 parameter search begins before the above approvals.
 
 **Until every applicable approval is recorded, this remains a proposal only.**
+
+
+## 9. Deterministic implementation conventions (added for review)
+
+- All interval boundaries above are UTC and end-exclusive. Candle timestamps represent candle open time. A fold includes candles with open timestamps >= start and < end.
+- For 1h and 4h bars, annualization factors are 8,760 and 2,190 respectively (365 days; no leap-year adjustment).
+- Mark-to-market equity is valued at each bar close. Transaction fees and slippage are charged on both entry and exit notional. Use a multiplicative execution-price adjustment: buy fill = next open × (1 + slippage_rate); sell fill = next open × (1 − slippage_rate). Fee = fee_rate × executed notional. Document whether reported returns are time-weighted equity returns; they must be.
+- Baseline and candidate simulations begin each validation fold flat with the same initial equity. Buy & Hold enters at the first eligible next-bar open and exits at the final eligible close, paying both sides' costs. Cash remains in quote currency with zero return.
+- EMA is SMA-seeded, then recursive alpha=2/(n+1); RSI uses Wilder smoothing. Require at least the longest indicator warm-up before any signal. No backward fill.
+- Sharpe/Sortino are undefined where denominator is zero; JSON should encode null and include an explanatory status field, never NaN/Infinity.
+- These definitions are proposals and require both contributors' approval before implementation.
