@@ -423,7 +423,8 @@ def download_binance_klines(symbol: str, interval: str, start: str, end: str,
 
 def save_dataset(rows: Sequence[dict[str, Any]], csv_path: str | Path, *,
                  symbol: str, interval: str, start: str, end: str,
-                 source_url: str = BINANCE_KLINES_URL,\n                 aggregation_provenance: dict[str, Any] | None = None) -> dict[str, Any]:
+                 source_url: str = BINANCE_KLINES_URL,
+                 aggregation_provenance: dict[str, Any] | None = None) -> dict[str, Any]:
     """Write normalized CSV plus a JSON manifest containing source and SHA-256."""
     if not rows:
         raise ValueError("refusing to save an empty dataset")
