@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from btc_signal_lab.market_data import (
     BINANCE_ARCHIVE_SOURCE, _download_from_binance_archive, _download_from_kucoin,
-    aggregate_minute_klines,
+    aggregate_minute_klines, download_binance_1m_archive_aggregate,
     normalize_klines, parse_utc, save_dataset,
 )
 
@@ -197,6 +197,43 @@ class MarketDataTests(unittest.TestCase):
         rows = self._minute_fixture(59)
         with self.assertRaisesRegex(ValueError, "align to complete UTC"):
             aggregate_minute_klines(rows, 0, 3_540_000, "1h")
+
+
+    def test_aggregate_enforces_4h_and_1d_constituent_counts(self):
+        four_hour, four_hour_meta = aggregate_minute_klines(
+            self._minute_fixture(240), 0, 14_400_000, "4h"
+        )
+        daily, daily_meta = aggregate_minute_klines(
+            self._minute_fixture(1440), 0, 86_400_000, "1d"
+        )
+        self.assertEqual(len(four_hour), 1)
+        self.assertEqual(four_hour_meta["expected_constituents_per_bucket"], 240)
+        self.assertEqual(len(daily), 1)
+        self.assertEqual(daily_meta["expected_constituents_per_bucket"], 1440)
+
+    def test_download_1m_archive_records_archive_provenance(self):
+        csv_buffer = io.StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(["open_time", "open", "high", "low", "close", "volume"])
+        writer.writerows(self._minute_fixture())
+        archive_buffer = io.BytesIO()
+        with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("BTCUSDT-1m-1970-01.csv", csv_buffer.getvalue())
+        archive_bytes = archive_buffer.getvalue()
+
+        with patch("btc_signal_lab.market_data.urlopen") as mocked_urlopen:
+            mocked_urlopen.return_value.__enter__.return_value.read.return_value = archive_bytes
+            rows, provenance = download_binance_1m_archive_aggregate(
+                "BTCUSDT", "1h", "1970-01-01T00:00:00Z",
+                "1970-01-01T01:00:00Z", timeout=1.0,
+            )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(provenance["source_interval"], "1m")
+        self.assertEqual(provenance["target_interval"], "1h")
+        self.assertEqual(provenance["source_archive_urls"], [
+            f"{BINANCE_ARCHIVE_SOURCE}/BTCUSDT/1m/BTCUSDT-1m-1970-01.zip"
+        ])
+        self.assertEqual(len(provenance["source_archive_sha256"][0]["sha256"]), 64)
 
 
 if __name__ == "__main__":
