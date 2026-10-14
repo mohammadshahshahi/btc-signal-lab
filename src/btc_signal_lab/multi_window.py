@@ -47,8 +47,9 @@ def evaluate_windows(
 
     Each window requires: name, partition (train/validation/test), csv_path,
     interval, start_utc, and end_utc_exclusive. Windows must be chronological
-    and non-overlapping within each interval. A test partition, if present,
-    must be unique and last within its interval. This permits the same UTC
+    and non-overlapping within each interval, and partition roles may only
+    progress train -> validation -> test. A test partition, if present, must
+    be unique and last within its interval. This permits the same UTC
     partition to be evaluated independently at both 1h and 4h.
     """
     if not isinstance(windows, Sequence) or isinstance(windows, (str, bytes)):
@@ -61,6 +62,8 @@ def evaluate_windows(
     seen_names: set[str] = set()
     normalized: list[dict[str, Any]] = []
     previous_end_by_interval: dict[str, Any] = {}
+    previous_partition_rank: dict[str, int] = {}
+    partition_rank = {"train": 0, "validation": 1, "test": 2}
     test_indexes_by_interval: dict[str, list[int]] = {"1h": [], "4h": []}
 
     for index, spec in enumerate(windows):
@@ -79,10 +82,17 @@ def evaluate_windows(
         if name in seen_names:
             raise ValueError(f"duplicate window name: {name}")
         seen_names.add(name)
-        if partition not in {"train", "validation", "test"}:
+        if partition not in partition_rank:
             raise ValueError(f"windows[{index}].partition must be train, validation, or test")
         if interval not in {"1h", "4h"}:
             raise ValueError(f"window {name} interval must be 1h or 4h")
+        rank = partition_rank[partition]
+        previous_rank = previous_partition_rank.get(interval, -1)
+        if rank < previous_rank:
+            raise ValueError(
+                f"partition roles must progress train -> validation -> test within {interval}"
+            )
+        previous_partition_rank[interval] = rank
         if partition == "test":
             test_indexes_by_interval[interval].append(index)
 
@@ -194,6 +204,7 @@ def write_multi_window_report(report: Mapping[str, Any], output_path: str | Path
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "
+",
         encoding="utf-8",
     )
