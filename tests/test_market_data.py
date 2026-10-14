@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from btc_signal_lab.market_data import (
-    BINANCE_ARCHIVE_SOURCE, _download_from_binance_archive, _download_from_kucoin,
+    BINANCE_ARCHIVE_SOURCE, _download_from_binance_archive, _download_from_kucoin,\n    aggregate_minute_klines,
     normalize_klines, parse_utc, save_dataset,
 )
 
@@ -140,6 +140,62 @@ class MarketDataTests(unittest.TestCase):
             self.assertEqual(manifest["row_count"], 1)
             self.assertEqual(len(manifest["csv_sha256"]), 64)
             self.assertTrue(path.with_suffix(".csv.manifest.json").exists())
+
+
+    @staticmethod
+    def _minute_fixture(count=60):
+        rows = []
+        for index in range(count):
+            opened = 100.0 + index / 100
+            rows.append([
+                index * 60_000, str(opened), str(opened + 1),
+                str(opened - 1), str(opened + 0.5), "1",
+            ])
+        return rows
+
+    def test_aggregate_exact_1h_from_60_consecutive_minutes(self):
+        rows, provenance = aggregate_minute_klines(
+            self._minute_fixture(), 0, 3_600_000, "1h"
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["timestamp_ms"], 0)
+        self.assertEqual(rows[0]["open"], 100.0)
+        self.assertAlmostEqual(rows[0]["high"], 101.59)
+        self.assertEqual(rows[0]["low"], 99.0)
+        self.assertAlmostEqual(rows[0]["close"], 101.09)
+        self.assertEqual(rows[0]["volume"], 60.0)
+        self.assertEqual(provenance["expected_constituents_per_bucket"], 60)
+        self.assertEqual(provenance["actual_constituent_counts"]["minimum"], 60)
+        self.assertEqual(provenance["actual_constituent_counts"]["maximum"], 60)
+
+    def test_aggregate_rejects_single_missing_minute(self):
+        rows = self._minute_fixture()
+        del rows[30]
+        with self.assertRaisesRegex(ValueError, "gap"):
+            aggregate_minute_klines(rows, 0, 3_600_000, "1h")
+
+    def test_aggregate_rejects_duplicate_minute(self):
+        rows = self._minute_fixture()
+        rows.insert(20, rows[19])
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            aggregate_minute_klines(rows, 0, 3_600_000, "1h")
+
+    def test_aggregate_rejects_out_of_order_minute(self):
+        rows = self._minute_fixture()
+        rows[10], rows[11] = rows[11], rows[10]
+        with self.assertRaisesRegex(ValueError, "out-of-order"):
+            aggregate_minute_klines(rows, 0, 3_600_000, "1h")
+
+    def test_aggregate_rejects_invalid_ohlcv_minute(self):
+        rows = self._minute_fixture()
+        rows[17][2] = "1"  # high below the row's open and low
+        with self.assertRaisesRegex(ValueError, "inconsistent OHLC"):
+            aggregate_minute_klines(rows, 0, 3_600_000, "1h")
+
+    def test_aggregate_rejects_incomplete_final_bucket(self):
+        rows = self._minute_fixture(59)
+        with self.assertRaisesRegex(ValueError, "align to complete UTC"):
+            aggregate_minute_klines(rows, 0, 3_540_000, "1h")
 
 
 if __name__ == "__main__":
