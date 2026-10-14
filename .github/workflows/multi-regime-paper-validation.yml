@@ -107,8 +107,26 @@ jobs:
           stem = f"BTCUSDT_{os.environ['WINDOW']}_{interval}"
           csv_path = out / f"{stem}.csv"
 
-          rows, source_url = download_binance_klines_with_source("BTCUSDT", interval, start, end)
-          manifest = save_dataset(rows, csv_path, symbol="BTCUSDT", interval=interval, start=start, end=end, source_url=source_url)
+          aggregation_provenance = None
+          try:
+              rows, source_url = download_binance_klines_with_source("BTCUSDT", interval, start, end)
+          except ValueError as direct_source_error:
+              # Same-venue 1m archive aggregation is a strict fallback only:
+              # every minute must exist and pass the shared validator.
+              try:
+                  rows, aggregation_provenance = download_binance_1m_archive_aggregate(
+                      "BTCUSDT", interval, start, end
+                  )
+                  source_url = BINANCE_ARCHIVE_SOURCE + "/BTCUSDT/1m (aggregated)"
+              except Exception as aggregation_error:
+                  raise RuntimeError(
+                      f"native-interval sources failed: {direct_source_error}; "
+                      f"strict Binance 1m aggregation also failed: {aggregation_error}"
+                  ) from aggregation_error
+          manifest = save_dataset(
+              rows, csv_path, symbol="BTCUSDT", interval=interval, start=start, end=end,
+              source_url=source_url, aggregation_provenance=aggregation_provenance,
+          )
           report = evaluate_dataset(csv_path, initial_capital=10000.0, fee_rate=fee_rate, slippage_bps=slippage_bps)
           report["validation_protocol"] = {
               "protocol_version": "1.1",
