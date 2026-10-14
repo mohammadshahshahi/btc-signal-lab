@@ -88,6 +88,8 @@ def evaluate_windows(
             raise ValueError(f"window {name} interval must be 1h or 4h")
         rank = partition_rank[partition]
         previous_rank = previous_partition_rank.get(interval, -1)
+        if previous_rank == partition_rank["test"] and rank < previous_rank:
+            raise ValueError(f"the final test partition must be last for {interval}")
         if rank < previous_rank:
             raise ValueError(
                 f"partition roles must progress train -> validation -> test within {interval}"
