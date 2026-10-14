@@ -57,7 +57,7 @@ Pre-registered rolling-origin folds (end-exclusive UTC boundaries; run independe
 - Fold 4 validation: [2021-02-17 00:00, 2021-08-17 00:00).
 - For each fold, training expands from the initial start through the validation start; the final 24 training bars are purged for the 24-bar forward diagnostic. Validation labels whose 24-bar horizon would cross the validation end are excluded from horizon metrics. Portfolio simulations reset to flat at each validation start, do not carry positions across folds, and execute close-generated signals no earlier than the next bar open.
 - The interval [2021-08-17, 2021-11-01) is not silently appended to a partial fifth fold; it remains unused in this initial design.
-- No random shuffling. Expected row counts are derived from each timeframe's UTC boundaries (6, 12, 24, 6 bars/day for 1h/4h as appropriate) only after source coverage is verified; actual counts, missing intervals, retrieval time and SHA-256 must be committed before strategy results are generated.
+- No random shuffling. Expected full-coverage candle counts are: initial training 17,520 (1h) / 4,380 (4h); Fold 1 4,416 / 1,104; Fold 2 4,368 / 1,092; Fold 3 4,416 / 1,104; Fold 4 4,344 / 1,086. These are calendar-derived expectations, not observed counts. Verify source coverage against them; actual counts, missing intervals, retrieval time and SHA-256 must be committed before strategy results are generated.
 
 This fold schedule is a proposal for joint approval. If either contributor has already used any proposed development interval to select/tune strategy logic, disclose that exposure and revise the role rather than claiming independence.
 
