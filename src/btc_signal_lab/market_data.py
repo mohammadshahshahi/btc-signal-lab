@@ -448,6 +448,8 @@ def save_dataset(rows: Sequence[dict[str, Any]], csv_path: str | Path, *,
         "csv_sha256": digest,
         "validation": "finite OHLCV, unique ordered timestamps, contiguous candles",
     }
-    if aggregation_provenance is not None:\n        manifest["aggregation"] = aggregation_provenance\n    manifest_path = destination.with_suffix(destination.suffix + ".manifest.json")
+    if aggregation_provenance is not None:
+        manifest["aggregation"] = aggregation_provenance
+    manifest_path = destination.with_suffix(destination.suffix + ".manifest.json")
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest
