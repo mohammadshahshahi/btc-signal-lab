@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
+import zipfile
 import json
 import math
 import time
@@ -19,8 +21,9 @@ from urllib.request import Request, urlopen
 INTERVAL_MS = {"1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 BINANCE_KLINES_URL = "https://data-api.binance.vision/api/v3/klines"
 BINANCE_KLINES_FALLBACK_URL = "https://api.binance.com/api/v3/klines"
+BINANCE_ARCHIVE_SOURCE = "https://data.binance.vision/data/spot/monthly/klines"
 KUCOIN_KLINES_URL = "https://api.kucoin.com/api/v1/market/candles"
-BINANCE_KLINES_SOURCES = (BINANCE_KLINES_URL, BINANCE_KLINES_FALLBACK_URL, KUCOIN_KLINES_URL)
+BINANCE_KLINES_SOURCES = (BINANCE_KLINES_URL, BINANCE_KLINES_FALLBACK_URL, BINANCE_ARCHIVE_SOURCE, KUCOIN_KLINES_URL)
 CSV_FIELDS = ["timestamp", "open", "high", "low", "close", "volume"]
 
 
@@ -44,6 +47,7 @@ def normalize_klines(payload: Sequence[Sequence[Any]], start_ms: int, end_ms: in
         raise TypeError("kline payload must be a sequence")
     step = INTERVAL_MS[interval]
     rows: list[dict[str, Any]] = []
+    previous_opened: int | None = None
     for index, raw in enumerate(payload):
         if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)) or len(raw) < 6:
             raise ValueError(f"kline[{index}] must contain at least six fields")
@@ -52,6 +56,15 @@ def normalize_klines(payload: Sequence[Sequence[Any]], start_ms: int, end_ms: in
             values = [float(raw[i]) for i in (1, 2, 3, 4, 5)]
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(f"kline[{index}] contains invalid numeric data") from exc
+        # Validate source order before range filtering or normalization. Sorting here
+        # would hide broken pagination / out-of-order payloads from the caller.
+        if previous_opened is not None and opened <= previous_opened:
+            problem = "duplicate" if opened == previous_opened else "out-of-order"
+            raise ValueError(
+                f"kline payload is {problem} at index {index}: "
+                f"timestamp {opened} follows {previous_opened}"
+            )
+        previous_opened = opened
         if not all(math.isfinite(v) for v in values):
             raise ValueError(f"kline[{index}] contains non-finite data")
         open_price, high, low, close, volume = values
@@ -69,10 +82,7 @@ def normalize_klines(payload: Sequence[Sequence[Any]], start_ms: int, end_ms: in
                 "close": close,
                 "volume": volume,
             })
-    rows.sort(key=lambda row: row["timestamp_ms"])
     timestamps = [row["timestamp_ms"] for row in rows]
-    if len(set(timestamps)) != len(timestamps):
-        raise ValueError("dataset contains duplicate candle timestamps")
     for previous, current in zip(timestamps, timestamps[1:]):
         if current - previous != step:
             raise ValueError(f"dataset has a candle gap between {previous} and {current}")
@@ -149,8 +159,11 @@ def _download_from_kucoin(symbol: str, interval: str, start_ms: int, end_ms: int
         if not isinstance(payload, dict) or payload.get("code") != "200000" or not isinstance(payload.get("data"), list):
             raise ValueError(f"unexpected KuCoin response: {payload!r}")
         batch = payload["data"]
-        # KuCoin returns [time seconds, open, close, high, low, volume, turnover].
-        for item in batch:
+        # KuCoin's candle endpoint returns rows newest-first. Normalize this
+        # provider-specific response order explicitly before applying the shared
+        # strict ascending-order validator; do not sort arbitrary input payloads.
+        # Row shape: [time seconds, open, close, high, low, volume, turnover].
+        for item in reversed(batch):
             if not isinstance(item, list) or len(item) < 6:
                 raise ValueError("KuCoin candle row has an invalid shape")
             raw_rows.append([
@@ -166,6 +179,46 @@ def _download_from_kucoin(symbol: str, interval: str, start_ms: int, end_ms: int
         raise ValueError("KuCoin dataset does not begin at requested candle boundary")
     if rows[-1]["timestamp_ms"] != end_ms - step or len(rows) != expected_count:
         raise ValueError(f"KuCoin dataset is incomplete: expected {expected_count} candles, received {len(rows)}")
+    return rows
+
+
+def _download_from_binance_archive(symbol: str, interval: str, start_ms: int,
+                                   end_ms: int, timeout: float) -> list[dict[str, Any]]:
+    """Download monthly Binance Vision ZIP archives and validate full coverage."""
+    start_dt = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc)
+    end_dt = datetime.fromtimestamp((end_ms - 1) / 1000, tz=timezone.utc)
+    month = datetime(start_dt.year, start_dt.month, 1, tzinfo=timezone.utc)
+    final_month = datetime(end_dt.year, end_dt.month, 1, tzinfo=timezone.utc)
+    raw_rows: list[list[Any]] = []
+    while month <= final_month:
+        archive_name = f"{symbol.upper()}-{interval}-{month.year}-{month.month:02d}.zip"
+        url = f"{BINANCE_ARCHIVE_SOURCE}/{symbol.upper()}/{interval}/{archive_name}"
+        request = Request(url, headers={"User-Agent": "btc-signal-lab-public-data/0.2"})
+        with urlopen(request, timeout=timeout) as response:
+            archive_bytes = response.read()
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            csv_names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
+            if len(csv_names) != 1:
+                raise ValueError(f"unexpected archive contents from {url}")
+            with archive.open(csv_names[0]) as handle:
+                for row in csv.reader(io.TextIOWrapper(handle, encoding="utf-8")):
+                    if not row or not row[0].strip().lstrip("-").isdigit():
+                        continue
+                    raw_rows.append(row[:6])
+        if month.month == 12:
+            month = datetime(month.year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            month = datetime(month.year, month.month + 1, 1, tzinfo=timezone.utc)
+
+    rows = normalize_klines(raw_rows, start_ms, end_ms, interval)
+    step = INTERVAL_MS[interval]
+    expected_count = (end_ms - start_ms) // step
+    if not rows or rows[0]["timestamp_ms"] != start_ms:
+        raise ValueError("Binance Vision archive does not begin at requested candle boundary")
+    if rows[-1]["timestamp_ms"] != end_ms - step or len(rows) != expected_count:
+        raise ValueError(
+            f"Binance Vision archive is incomplete: expected {expected_count} candles, received {len(rows)}"
+        )
     return rows
 
 
@@ -194,17 +247,29 @@ def download_binance_klines_with_source(
         raise ValueError(f"start and end must align to {interval} candle boundaries")
 
     failures: list[str] = []
+    # Retry the same provider before switching venues: intermittent truncated
+    # responses must not immediately force a cross-exchange fallback. Every
+    # attempt is independently validated and no missing candle is synthesized.
+    attempts_per_source = 2
     for source_url in sources:
-        try:
-            if source_url == KUCOIN_KLINES_URL:
-                if symbol.strip().upper() not in {"BTCUSDT", "BTC-USDT"}:
-                    raise ValueError("KuCoin fallback currently supports BTCUSDT only")
-                rows = _download_from_kucoin(symbol, interval, start_ms, end_ms, timeout)
-            else:
-                rows = _download_from_source(symbol, interval, start_ms, end_ms, source_url, timeout)
-            return rows, source_url
-        except Exception as exc:
-            failures.append(f"{source_url}: {type(exc).__name__}: {exc}")
+        for attempt in range(1, attempts_per_source + 1):
+            try:
+                if source_url == KUCOIN_KLINES_URL:
+                    if symbol.strip().upper() not in {"BTCUSDT", "BTC-USDT"}:
+                        raise ValueError("KuCoin fallback currently supports BTCUSDT only")
+                    rows = _download_from_kucoin(symbol, interval, start_ms, end_ms, timeout)
+                elif source_url == BINANCE_ARCHIVE_SOURCE:
+                    rows = _download_from_binance_archive(symbol, interval, start_ms, end_ms, timeout)
+                else:
+                    rows = _download_from_source(symbol, interval, start_ms, end_ms, source_url, timeout)
+                return rows, source_url
+            except Exception as exc:
+                failures.append(
+                    f"{source_url} (attempt {attempt}/{attempts_per_source}): "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                if attempt < attempts_per_source:
+                    time.sleep(0.25)
     raise ValueError("all public market-data sources failed strict dataset validation: " + " | ".join(failures))
 
 
