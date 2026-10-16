@@ -354,7 +354,7 @@ def aggregate_minute_klines(
 def download_binance_1m_archive_aggregate(
     symbol: str, target_interval: str, start: str, end: str, *, timeout: float = 30.0
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Download same-venue Binance Spot 1m monthly archives and aggregate strictly."""
+    """Aggregate strict Binance Spot 1m data, using daily archives to audit monthly gaps."""
     if not isinstance(symbol, str) or not symbol.strip() or not symbol.isalnum():
         raise ValueError("symbol must be an alphanumeric spot symbol such as BTCUSDT")
     if target_interval not in {"1h", "4h", "1d"}:
@@ -362,6 +362,7 @@ def download_binance_1m_archive_aggregate(
     start_dt, end_dt = parse_utc(start), parse_utc(end)
     start_ms, end_ms = int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000)
     target_step = INTERVAL_MS[target_interval]
+    minute_step = INTERVAL_MS["1m"]
     if end_ms <= start_ms or start_ms % target_step or end_ms % target_step:
         raise ValueError("start and end must align to complete UTC target-interval boundaries")
 
@@ -374,6 +375,20 @@ def download_binance_1m_archive_aggregate(
     raw_minutes: list[list[Any]] = []
     archive_urls: list[str] = []
     archive_hashes: list[dict[str, str]] = []
+    daily_archive_failures: list[dict[str, str]] = []
+
+    def read_archive(archive_bytes: bytes, url: str) -> list[list[Any]]:
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            csv_names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
+            if len(csv_names) != 1:
+                raise ValueError(f"unexpected 1m archive contents from {url}")
+            parsed: list[list[Any]] = []
+            with archive.open(csv_names[0]) as handle:
+                for row in csv.reader(io.TextIOWrapper(handle, encoding="utf-8")):
+                    if row and row[0].strip().lstrip("-").isdigit():
+                        parsed.append(row[:6])
+            return parsed
+
     while month <= final_month:
         archive_name = f"{symbol.upper()}-1m-{month.year}-{month.month:02d}.zip"
         url = f"{BINANCE_ARCHIVE_SOURCE}/{symbol.upper()}/1m/{archive_name}"
@@ -381,43 +396,102 @@ def download_binance_1m_archive_aggregate(
         with urlopen(request, timeout=timeout) as response:
             archive_bytes = response.read()
         archive_urls.append(url)
-        archive_hashes.append({
-            "url": url,
-            "sha256": hashlib.sha256(archive_bytes).hexdigest(),
-        })
-        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-            csv_names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
-            if len(csv_names) != 1:
-                raise ValueError(f"unexpected 1m archive contents from {url}")
-            with archive.open(csv_names[0]) as handle:
-                for row in csv.reader(io.TextIOWrapper(handle, encoding="utf-8")):
-                    if not row or not row[0].strip().lstrip("-").isdigit():
-                        continue
-                    raw_minutes.append(row[:6])
+        archive_hashes.append({"url": url, "sha256": hashlib.sha256(archive_bytes).hexdigest()})
+        raw_minutes.extend(read_archive(archive_bytes, url))
         if month.month == 12:
             month = datetime(month.year + 1, 1, 1, tzinfo=timezone.utc)
         else:
             month = datetime(month.year, month.month + 1, 1, tzinfo=timezone.utc)
+
+    # If monthly files omit expected minutes, consult Binance's own daily files
+    # for only the affected UTC dates. Replace the entire affected day rather than
+    # splicing isolated rows; this keeps venue/instrument provenance unambiguous.
+    present = {
+        int(row[0]) for row in raw_minutes
+        if row and str(row[0]).strip().lstrip("-").isdigit()
+    }
+    missing = [ts for ts in range(start_ms, end_ms, minute_step) if ts not in present]
+    affected_days = sorted({
+        datetime.fromtimestamp(ts / 1000, timezone.utc).date().isoformat()
+        for ts in missing
+    })
+    daily_rows_by_day: dict[str, list[list[Any]]] = {}
+    for day in affected_days:
+        daily_url = (
+            f"https://data.binance.vision/data/spot/daily/klines/{symbol.upper()}/1m/"
+            f"{symbol.upper()}-1m-{day}.zip"
+        )
+        try:
+            request = Request(daily_url, headers={"User-Agent": "btc-signal-lab-public-data/0.3"})
+            with urlopen(request, timeout=timeout) as response:
+                daily_bytes = response.read()
+            archive_urls.append(daily_url)
+            archive_hashes.append({
+                "url": daily_url, "sha256": hashlib.sha256(daily_bytes).hexdigest()
+            })
+            daily_rows_by_day[day] = read_archive(daily_bytes, daily_url)
+        except Exception as exc:
+            daily_archive_failures.append({
+                "url": daily_url, "error": f"{type(exc).__name__}: {exc}"
+            })
+            archive_evidence = json.dumps({
+                "source_archive_urls": archive_urls,
+                "source_archive_sha256": archive_hashes,
+                "daily_archive_failures": daily_archive_failures,
+            }, sort_keys=True)
+            raise ValueError(
+                f"monthly Binance 1m archive has missing minutes and daily same-venue "
+                f"fallback failed for {day}: {exc}; archive_evidence={archive_evidence}"
+            ) from exc
+
+    if daily_rows_by_day:
+        replacements = iter(sorted(daily_rows_by_day))
+        next_day = next(replacements, None)
+        emitted: set[str] = set()
+        merged: list[list[Any]] = []
+
+        def emit_replacement(day: str) -> None:
+            merged.extend(daily_rows_by_day[day])
+            emitted.add(day)
+
+        for row in raw_minutes:
+            if not row or not str(row[0]).strip().lstrip("-").isdigit():
+                continue
+            row_day = datetime.fromtimestamp(int(row[0]) / 1000, timezone.utc).date().isoformat()
+            while next_day is not None and next_day < row_day:
+                emit_replacement(next_day)
+                next_day = next(replacements, None)
+            if row_day in daily_rows_by_day:
+                if row_day not in emitted:
+                    emit_replacement(row_day)
+                continue
+            merged.append(row)
+        while next_day is not None:
+            if next_day not in emitted:
+                emit_replacement(next_day)
+            next_day = next(replacements, None)
+        raw_minutes = merged
 
     try:
         aggregated, provenance = aggregate_minute_klines(
             raw_minutes, start_ms, end_ms, target_interval
         )
     except ValueError as exc:
-        # Preserve source identity even when validation fails, so a failed CI
-        # run is reproducible and the exact archive can be independently audited.
-        archive_evidence = json.dumps(
-            {"source_archive_urls": archive_urls, "source_archive_sha256": archive_hashes},
-            sort_keys=True,
-        )
+        archive_evidence = json.dumps({
+            "source_archive_urls": archive_urls,
+            "source_archive_sha256": archive_hashes,
+            "daily_archive_failures": daily_archive_failures,
+            "daily_replacement_dates": affected_days,
+        }, sort_keys=True)
         raise ValueError(
             f"strict Binance 1m archive validation failed: {exc}; "
             f"archive_evidence={archive_evidence}"
         ) from exc
     provenance.update({
-        "source": "Binance Spot monthly 1m archives",
+        "source": "Binance Spot 1m archives (monthly; affected days replaced from daily archives)",
         "source_archive_urls": archive_urls,
         "source_archive_sha256": archive_hashes,
+        "daily_replacement_dates": affected_days,
         "start_utc": start_dt.isoformat().replace("+00:00", "Z"),
         "end_utc_exclusive": end_dt.isoformat().replace("+00:00", "Z"),
     })
