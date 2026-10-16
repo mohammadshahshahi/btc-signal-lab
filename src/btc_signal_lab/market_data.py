@@ -429,7 +429,19 @@ def download_binance_1m_archive_aggregate(
             archive_hashes.append({
                 "url": daily_url, "sha256": hashlib.sha256(daily_bytes).hexdigest()
             })
-            daily_rows_by_day[day] = read_archive(daily_bytes, daily_url)
+            daily_rows = read_archive(daily_bytes, daily_url)
+            # Validate the daily source in its published order before replacing
+            # any monthly rows. Never silently sort a source archive to hide defects.
+            previous_timestamp: int | None = None
+            for index, row in enumerate(daily_rows):
+                timestamp = int(row[0])
+                if previous_timestamp is not None and timestamp <= previous_timestamp:
+                    raise ValueError(
+                        f"daily archive is not strictly ordered at index {index}: "
+                        f"timestamp {timestamp} follows {previous_timestamp}"
+                    )
+                previous_timestamp = timestamp
+            daily_rows_by_day[day] = daily_rows
         except Exception as exc:
             daily_archive_failures.append({
                 "url": daily_url, "error": f"{type(exc).__name__}: {exc}"
