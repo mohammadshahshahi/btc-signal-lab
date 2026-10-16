@@ -211,6 +211,30 @@ class MarketDataTests(unittest.TestCase):
         self.assertEqual(len(daily), 1)
         self.assertEqual(daily_meta["expected_constituents_per_bucket"], 1440)
 
+    def test_failed_1m_archive_validation_reports_url_and_sha256(self):
+        csv_buffer = io.StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(["open_time", "open", "high", "low", "close", "volume"])
+        writer.writerows(self._minute_fixture(59))
+        archive_buffer = io.BytesIO()
+        with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("BTCUSDT-1m-1970-01.csv", csv_buffer.getvalue())
+        archive_bytes = archive_buffer.getvalue()
+
+        with patch("btc_signal_lab.market_data.urlopen") as mocked_urlopen:
+            mocked_urlopen.return_value.__enter__.return_value.read.return_value = archive_bytes
+            with self.assertRaisesRegex(ValueError, "archive_evidence") as raised:
+                download_binance_1m_archive_aggregate(
+                    "BTCUSDT", "1h", "1970-01-01T00:00:00Z",
+                    "1970-01-01T01:00:00Z", timeout=1.0,
+                )
+
+        message = str(raised.exception)
+        self.assertIn("BTCUSDT-1m-1970-01.zip", message)
+        self.assertIn("sha256", message)
+        self.assertIn("incomplete 1m source range", message)
+
+
     def test_download_1m_archive_records_archive_provenance(self):
         csv_buffer = io.StringIO()
         writer = csv.writer(csv_buffer)
