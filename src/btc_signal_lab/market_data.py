@@ -399,9 +399,21 @@ def download_binance_1m_archive_aggregate(
         else:
             month = datetime(month.year, month.month + 1, 1, tzinfo=timezone.utc)
 
-    aggregated, provenance = aggregate_minute_klines(
-        raw_minutes, start_ms, end_ms, target_interval
-    )
+    try:
+        aggregated, provenance = aggregate_minute_klines(
+            raw_minutes, start_ms, end_ms, target_interval
+        )
+    except ValueError as exc:
+        # Preserve source identity even when validation fails, so a failed CI
+        # run is reproducible and the exact archive can be independently audited.
+        archive_evidence = json.dumps(
+            {"source_archive_urls": archive_urls, "source_archive_sha256": archive_hashes},
+            sort_keys=True,
+        )
+        raise ValueError(
+            f"strict Binance 1m archive validation failed: {exc}; "
+            f"archive_evidence={archive_evidence}"
+        ) from exc
     provenance.update({
         "source": "Binance Spot monthly 1m archives",
         "source_archive_urls": archive_urls,
