@@ -457,31 +457,46 @@ def download_binance_1m_archive_aggregate(
             ) from exc
 
     if daily_rows_by_day:
-        replacements = iter(sorted(daily_rows_by_day))
-        next_day = next(replacements, None)
-        emitted: set[str] = set()
-        merged: list[list[Any]] = []
-
-        def emit_replacement(day: str) -> None:
-            merged.extend(daily_rows_by_day[day])
-            emitted.add(day)
-
-        for row in raw_minutes:
+        # Build an explicit day-indexed replacement. The previous streaming
+        # insertion algorithm could place a daily file after the monthly day's
+        # final row, making the replacement start at 00:00 appear out of order.
+        # Validate monthly archive order first; group only by UTC day, never by
+        # sorting individual candle timestamps.
+        monthly_rows_by_day: dict[str, list[list[Any]]] = {}
+        previous_monthly_timestamp: int | None = None
+        for index, row in enumerate(raw_minutes):
             if not row or not str(row[0]).strip().lstrip("-").isdigit():
                 continue
-            row_day = datetime.fromtimestamp(int(row[0]) / 1000, timezone.utc).date().isoformat()
-            while next_day is not None and next_day < row_day:
-                emit_replacement(next_day)
-                next_day = next(replacements, None)
-            if row_day in daily_rows_by_day:
-                if row_day not in emitted:
-                    emit_replacement(row_day)
-                continue
-            merged.append(row)
-        while next_day is not None:
-            if next_day not in emitted:
-                emit_replacement(next_day)
-            next_day = next(replacements, None)
+            timestamp = int(row[0])
+            if previous_monthly_timestamp is not None and timestamp <= previous_monthly_timestamp:
+                raise ValueError(
+                    f"monthly Binance archive rows are not strictly ordered at index {index}: "
+                    f"timestamp {timestamp} follows {previous_monthly_timestamp}"
+                )
+            previous_monthly_timestamp = timestamp
+            row_day = datetime.fromtimestamp(timestamp / 1000, timezone.utc).date().isoformat()
+            monthly_rows_by_day.setdefault(row_day, []).append(row)
+
+        # Preserve the original row order inside each source day. Daily archives
+        # replace whole UTC dates, and dates are emitted chronologically.
+        all_days = sorted(set(monthly_rows_by_day) | set(daily_rows_by_day))
+        merged: list[list[Any]] = []
+        for day in all_days:
+            selected_rows = daily_rows_by_day.get(day, monthly_rows_by_day.get(day, []))
+            for index, row in enumerate(selected_rows):
+                timestamp = int(row[0])
+                actual_day = datetime.fromtimestamp(timestamp / 1000, timezone.utc).date().isoformat()
+                if actual_day != day:
+                    raise ValueError(
+                        f"archive row timestamp day mismatch: expected {day}, got {actual_day} "
+                        f"at row index {index}"
+                    )
+                if index and timestamp <= int(selected_rows[index - 1][0]):
+                    raise ValueError(
+                        f"archive rows are not strictly ordered for {day} at index {index}: "
+                        f"timestamp {timestamp} follows {selected_rows[index - 1][0]}"
+                    )
+            merged.extend(selected_rows)
         raw_minutes = merged
 
     try:
