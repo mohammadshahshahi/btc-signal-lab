@@ -235,6 +235,42 @@ class MarketDataTests(unittest.TestCase):
         self.assertIn("incomplete 1m source range", message)
 
 
+    def test_daily_archive_repairs_monthly_gap_from_same_venue(self):
+        def make_archive(rows, member_name):
+            csv_buffer = io.StringIO()
+            writer = csv.writer(csv_buffer)
+            writer.writerow(["open_time", "open", "high", "low", "close", "volume"])
+            writer.writerows(rows)
+            archive_buffer = io.BytesIO()
+            with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(member_name, csv_buffer.getvalue())
+            return archive_buffer.getvalue()
+
+        monthly_bytes = make_archive(self._minute_fixture(59), "BTCUSDT-1m-1970-01.csv")
+        daily_bytes = make_archive(self._minute_fixture(60), "BTCUSDT-1m-1970-01-01.csv")
+
+        def response(payload):
+            mocked_response = unittest.mock.MagicMock()
+            mocked_response.__enter__.return_value.read.return_value = payload
+            return mocked_response
+
+        with patch(
+            "btc_signal_lab.market_data.urlopen",
+            side_effect=[response(monthly_bytes), response(daily_bytes)],
+        ) as mocked_urlopen:
+            rows, provenance = download_binance_1m_archive_aggregate(
+                "BTCUSDT", "1h", "1970-01-01T00:00:00Z",
+                "1970-01-01T01:00:00Z", timeout=1.0,
+            )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(provenance["daily_replacement_dates"], ["1970-01-01"])
+        self.assertEqual(len(provenance["source_archive_sha256"]), 2)
+        requested_urls = [call.args[0].full_url for call in mocked_urlopen.call_args_list]
+        self.assertTrue(any("/monthly/" in url for url in requested_urls))
+        self.assertTrue(any("/daily/" in url for url in requested_urls))
+
+
     def test_download_1m_archive_records_archive_provenance(self):
         csv_buffer = io.StringIO()
         writer = csv.writer(csv_buffer)
