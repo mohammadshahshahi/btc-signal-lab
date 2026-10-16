@@ -14,6 +14,18 @@ these windows while also claiming an unbiased final-test result.
 
 ## Data partitions
 
+**Governance blocker — roles are not jointly approved.** This draft's table below
+reflects the current PR proposal only. Issue #2 separately proposed the
+2021-11-01–2022-11-01 bear window as development/train and 2023 as validation.
+Those role assignments conflict; neither proposal is authoritative until both
+collaborators explicitly reconcile and approve the exact boundaries and roles.
+The already-inspected 2021–2025 results remain exposed evidence regardless of
+the eventual labels. Do not retroactively relabel prior results, use them to
+claim unbiased generalization, or start a final-test workflow while this
+decision is unresolved. The proposed 2025-02-01–2026-02-01 interval is now
+classified as exposure-unknown for governance purposes and must not be called
+an untouched holdout.
+
 Use strictly chronological, non-overlapping partitions:
 
 | Partition | UTC range | Permitted use | Status |
