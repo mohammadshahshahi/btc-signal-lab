@@ -18,7 +18,7 @@ from typing import Any, Sequence
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-INTERVAL_MS = {"1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
+INTERVAL_MS = {"1m": 60_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 BINANCE_KLINES_URL = "https://data-api.binance.vision/api/v3/klines"
 BINANCE_KLINES_FALLBACK_URL = "https://api.binance.com/api/v3/klines"
 BINANCE_ARCHIVE_SOURCE = "https://data.binance.vision/data/spot/monthly/klines"
@@ -273,6 +273,277 @@ def download_binance_klines_with_source(
     raise ValueError("all public market-data sources failed strict dataset validation: " + " | ".join(failures))
 
 
+
+def aggregate_minute_klines(
+    payload: Sequence[Sequence[Any]], start_ms: int, end_ms: int, target_interval: str
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Aggregate complete, strictly ordered Binance 1m rows into UTC target bars.
+
+    The requested range is [start_ms, end_ms). Every target bucket must contain
+    exactly 60, 240, or 1,440 consecutive minute candles. No gaps are filled.
+    """
+    if target_interval not in {"1h", "4h", "1d"}:
+        raise ValueError("target_interval must be 1h, 4h, or 1d")
+    target_step = INTERVAL_MS[target_interval]
+    minute_step = INTERVAL_MS["1m"]
+    if end_ms <= start_ms or start_ms % target_step or end_ms % target_step:
+        raise ValueError("start and end must align to complete UTC target-interval boundaries")
+
+    expected_minutes = (end_ms - start_ms) // minute_step
+    minute_rows = normalize_klines(payload, start_ms, end_ms, "1m")
+    if len(minute_rows) != expected_minutes:
+        raise ValueError(
+            f"incomplete 1m source range: expected {expected_minutes} minute candles, "
+            f"received {len(minute_rows)}"
+        )
+    if not minute_rows or minute_rows[0]["timestamp_ms"] != start_ms:
+        raise ValueError("1m source does not begin at the requested UTC boundary")
+    if minute_rows[-1]["timestamp_ms"] != end_ms - minute_step:
+        raise ValueError("1m source does not reach the final requested minute")
+
+    constituents_per_bucket = target_step // minute_step
+    if expected_minutes % constituents_per_bucket:
+        raise ValueError("1m source does not contain an integer number of complete target buckets")
+
+    aggregated: list[dict[str, Any]] = []
+    actual_counts: list[int] = []
+    for offset in range(0, expected_minutes, constituents_per_bucket):
+        bucket = minute_rows[offset:offset + constituents_per_bucket]
+        bucket_start = start_ms + offset * minute_step
+        if len(bucket) != constituents_per_bucket:
+            raise ValueError("incomplete final target bucket")
+        expected_timestamps = [
+            bucket_start + index * minute_step for index in range(constituents_per_bucket)
+        ]
+        if [row["timestamp_ms"] for row in bucket] != expected_timestamps:
+            raise ValueError(f"target bucket at {bucket_start} has missing or misaligned 1m constituents")
+        aggregated.append({
+            "timestamp_ms": bucket_start,
+            "timestamp": datetime.fromtimestamp(
+                bucket_start / 1000, timezone.utc
+            ).isoformat().replace("+00:00", "Z"),
+            "open": bucket[0]["open"],
+            "high": max(row["high"] for row in bucket),
+            "low": min(row["low"] for row in bucket),
+            "close": bucket[-1]["close"],
+            "volume": sum(row["volume"] for row in bucket),
+        })
+        actual_counts.append(len(bucket))
+
+    provenance = {
+        "source_interval": "1m",
+        "target_interval": target_interval,
+        "aggregation_formula": {
+            "open": "first constituent open",
+            "high": "maximum constituent high",
+            "low": "minimum constituent low",
+            "close": "last constituent close",
+            "volume": "sum of constituent volumes",
+        },
+        "expected_constituents_per_bucket": constituents_per_bucket,
+        "actual_constituent_counts": {
+            "bucket_count": len(actual_counts),
+            "minimum": min(actual_counts),
+            "maximum": max(actual_counts),
+            "total": sum(actual_counts),
+        },
+    }
+    return aggregated, provenance
+
+
+def download_binance_1m_archive_aggregate(
+    symbol: str, target_interval: str, start: str, end: str, *, timeout: float = 30.0
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Aggregate strict Binance Spot 1m data, using daily archives to audit monthly gaps."""
+    if not isinstance(symbol, str) or not symbol.strip() or not symbol.isalnum():
+        raise ValueError("symbol must be an alphanumeric spot symbol such as BTCUSDT")
+    if target_interval not in {"1h", "4h", "1d"}:
+        raise ValueError("target_interval must be 1h, 4h, or 1d")
+    start_dt, end_dt = parse_utc(start), parse_utc(end)
+    start_ms, end_ms = int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000)
+    target_step = INTERVAL_MS[target_interval]
+    minute_step = INTERVAL_MS["1m"]
+    if end_ms <= start_ms or start_ms % target_step or end_ms % target_step:
+        raise ValueError("start and end must align to complete UTC target-interval boundaries")
+
+    month = datetime(start_dt.year, start_dt.month, 1, tzinfo=timezone.utc)
+    final_month = datetime(
+        datetime.fromtimestamp((end_ms - 1) / 1000, timezone.utc).year,
+        datetime.fromtimestamp((end_ms - 1) / 1000, timezone.utc).month,
+        1, tzinfo=timezone.utc,
+    )
+    raw_minutes: list[list[Any]] = []
+    archive_urls: list[str] = []
+    archive_hashes: list[dict[str, str]] = []
+    daily_archive_failures: list[dict[str, str]] = []
+
+    def read_archive(archive_bytes: bytes, url: str) -> list[list[Any]]:
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            csv_names = [name for name in archive.namelist() if name.lower().endswith(".csv")]
+            if len(csv_names) != 1:
+                raise ValueError(f"unexpected 1m archive contents from {url}")
+            parsed: list[list[Any]] = []
+            with archive.open(csv_names[0]) as handle:
+                for row in csv.reader(io.TextIOWrapper(handle, encoding="utf-8")):
+                    if row and row[0].strip().lstrip("-").isdigit():
+                        parsed.append(row[:6])
+            return parsed
+
+    while month <= final_month:
+        archive_name = f"{symbol.upper()}-1m-{month.year}-{month.month:02d}.zip"
+        url = f"{BINANCE_ARCHIVE_SOURCE}/{symbol.upper()}/1m/{archive_name}"
+        request = Request(url, headers={"User-Agent": "btc-signal-lab-public-data/0.3"})
+        with urlopen(request, timeout=timeout) as response:
+            archive_bytes = response.read()
+        archive_urls.append(url)
+        archive_hashes.append({"url": url, "sha256": hashlib.sha256(archive_bytes).hexdigest()})
+        raw_minutes.extend(read_archive(archive_bytes, url))
+        if month.month == 12:
+            month = datetime(month.year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            month = datetime(month.year, month.month + 1, 1, tzinfo=timezone.utc)
+
+    # If monthly files omit expected minutes, consult Binance's own daily files
+    # for only the affected UTC dates. Replace the entire affected day rather than
+    # splicing isolated rows; this keeps venue/instrument provenance unambiguous.
+    present = {
+        int(row[0]) for row in raw_minutes
+        if row and str(row[0]).strip().lstrip("-").isdigit()
+    }
+    missing = [ts for ts in range(start_ms, end_ms, minute_step) if ts not in present]
+    affected_days = sorted({
+        datetime.fromtimestamp(ts / 1000, timezone.utc).date().isoformat()
+        for ts in missing
+    })
+    daily_rows_by_day: dict[str, list[list[Any]]] = {}
+    for day in affected_days:
+        daily_url = (
+            f"https://data.binance.vision/data/spot/daily/klines/{symbol.upper()}/1m/"
+            f"{symbol.upper()}-1m-{day}.zip"
+        )
+        try:
+            request = Request(daily_url, headers={"User-Agent": "btc-signal-lab-public-data/0.3"})
+            with urlopen(request, timeout=timeout) as response:
+                daily_bytes = response.read()
+            archive_urls.append(daily_url)
+            archive_hashes.append({
+                "url": daily_url, "sha256": hashlib.sha256(daily_bytes).hexdigest()
+            })
+            daily_rows = read_archive(daily_bytes, daily_url)
+            # Validate source order and full UTC-day coverage before replacing
+            # monthly rows. Ordered rows alone do not prove the daily archive is complete.
+            previous_timestamp: int | None = None
+            for index, row in enumerate(daily_rows):
+                timestamp = int(row[0])
+                if previous_timestamp is not None and timestamp <= previous_timestamp:
+                    raise ValueError(
+                        f"daily archive is not strictly ordered at index {index}: "
+                        f"timestamp {timestamp} follows {previous_timestamp}"
+                    )
+                previous_timestamp = timestamp
+
+            day_start_ms = int(datetime.fromisoformat(day).replace(
+                tzinfo=timezone.utc
+            ).timestamp() * 1000)
+            expected_daily_count = 24 * 60
+            for index, row in enumerate(daily_rows):
+                timestamp = int(row[0])
+                expected_timestamp = day_start_ms + index * minute_step
+                if timestamp != expected_timestamp:
+                    raise ValueError(
+                        f"daily archive has incomplete UTC-day coverage for {day} at index {index}: "
+                        f"expected timestamp {expected_timestamp}, got {timestamp}; "
+                        f"expected {expected_daily_count} consecutive 1m candles, got {len(daily_rows)} rows"
+                    )
+            if len(daily_rows) != expected_daily_count:
+                raise ValueError(
+                    f"daily archive has incomplete UTC-day coverage for {day}: "
+                    f"expected {expected_daily_count} consecutive 1m candles, got {len(daily_rows)} rows"
+                )
+            daily_rows_by_day[day] = daily_rows
+        except Exception as exc:
+            daily_archive_failures.append({
+                "url": daily_url, "error": f"{type(exc).__name__}: {exc}"
+            })
+            archive_evidence = json.dumps({
+                "source_archive_urls": archive_urls,
+                "source_archive_sha256": archive_hashes,
+                "daily_archive_failures": daily_archive_failures,
+            }, sort_keys=True)
+            raise ValueError(
+                f"monthly Binance 1m archive has missing minutes and daily same-venue "
+                f"fallback failed for {day}: {exc}; archive_evidence={archive_evidence}"
+            ) from exc
+
+    if daily_rows_by_day:
+        # Build an explicit day-indexed replacement. The previous streaming
+        # insertion algorithm could place a daily file after the monthly day's
+        # final row, making the replacement start at 00:00 appear out of order.
+        # Validate monthly archive order first; group only by UTC day, never by
+        # sorting individual candle timestamps.
+        monthly_rows_by_day: dict[str, list[list[Any]]] = {}
+        previous_monthly_timestamp: int | None = None
+        for index, row in enumerate(raw_minutes):
+            if not row or not str(row[0]).strip().lstrip("-").isdigit():
+                continue
+            timestamp = int(row[0])
+            if previous_monthly_timestamp is not None and timestamp <= previous_monthly_timestamp:
+                raise ValueError(
+                    f"monthly Binance archive rows are not strictly ordered at index {index}: "
+                    f"timestamp {timestamp} follows {previous_monthly_timestamp}"
+                )
+            previous_monthly_timestamp = timestamp
+            row_day = datetime.fromtimestamp(timestamp / 1000, timezone.utc).date().isoformat()
+            monthly_rows_by_day.setdefault(row_day, []).append(row)
+
+        # Preserve the original row order inside each source day. Daily archives
+        # replace whole UTC dates, and dates are emitted chronologically.
+        all_days = sorted(set(monthly_rows_by_day) | set(daily_rows_by_day))
+        merged: list[list[Any]] = []
+        for day in all_days:
+            selected_rows = daily_rows_by_day.get(day, monthly_rows_by_day.get(day, []))
+            for index, row in enumerate(selected_rows):
+                timestamp = int(row[0])
+                actual_day = datetime.fromtimestamp(timestamp / 1000, timezone.utc).date().isoformat()
+                if actual_day != day:
+                    raise ValueError(
+                        f"archive row timestamp day mismatch: expected {day}, got {actual_day} "
+                        f"at row index {index}"
+                    )
+                if index and timestamp <= int(selected_rows[index - 1][0]):
+                    raise ValueError(
+                        f"archive rows are not strictly ordered for {day} at index {index}: "
+                        f"timestamp {timestamp} follows {selected_rows[index - 1][0]}"
+                    )
+            merged.extend(selected_rows)
+        raw_minutes = merged
+
+    try:
+        aggregated, provenance = aggregate_minute_klines(
+            raw_minutes, start_ms, end_ms, target_interval
+        )
+    except ValueError as exc:
+        archive_evidence = json.dumps({
+            "source_archive_urls": archive_urls,
+            "source_archive_sha256": archive_hashes,
+            "daily_archive_failures": daily_archive_failures,
+            "daily_replacement_dates": affected_days,
+        }, sort_keys=True)
+        raise ValueError(
+            f"strict Binance 1m archive validation failed: {exc}; "
+            f"archive_evidence={archive_evidence}"
+        ) from exc
+    provenance.update({
+        "source": "Binance Spot 1m archives (monthly; affected days replaced from daily archives)",
+        "source_archive_urls": archive_urls,
+        "source_archive_sha256": archive_hashes,
+        "daily_replacement_dates": affected_days,
+        "start_utc": start_dt.isoformat().replace("+00:00", "Z"),
+        "end_utc_exclusive": end_dt.isoformat().replace("+00:00", "Z"),
+    })
+    return aggregated, provenance
+
+
 def download_binance_klines(symbol: str, interval: str, start: str, end: str,
                             *, timeout: float = 30.0) -> list[dict[str, Any]]:
     """Backward-compatible helper returning verified rows from either public source."""
@@ -284,7 +555,8 @@ def download_binance_klines(symbol: str, interval: str, start: str, end: str,
 
 def save_dataset(rows: Sequence[dict[str, Any]], csv_path: str | Path, *,
                  symbol: str, interval: str, start: str, end: str,
-                 source_url: str = BINANCE_KLINES_URL) -> dict[str, Any]:
+                 source_url: str = BINANCE_KLINES_URL,
+                 aggregation_provenance: dict[str, Any] | None = None) -> dict[str, Any]:
     """Write normalized CSV plus a JSON manifest containing source and SHA-256."""
     if not rows:
         raise ValueError("refusing to save an empty dataset")
@@ -309,6 +581,8 @@ def save_dataset(rows: Sequence[dict[str, Any]], csv_path: str | Path, *,
         "csv_sha256": digest,
         "validation": "finite OHLCV, unique ordered timestamps, contiguous candles",
     }
+    if aggregation_provenance is not None:
+        manifest["aggregation"] = aggregation_provenance
     manifest_path = destination.with_suffix(destination.suffix + ".manifest.json")
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest
