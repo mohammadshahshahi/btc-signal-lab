@@ -247,7 +247,8 @@ class MarketDataTests(unittest.TestCase):
             return archive_buffer.getvalue()
 
         monthly_bytes = make_archive(self._minute_fixture(59), "BTCUSDT-1m-1970-01.csv")
-        daily_bytes = make_archive(self._minute_fixture(60), "BTCUSDT-1m-1970-01-01.csv")
+        # Daily archives are full UTC days, even when the requested test window is one hour.
+        daily_bytes = make_archive(self._minute_fixture(1440), "BTCUSDT-1m-1970-01-01.csv")
 
         def response(payload):
             mocked_response = unittest.mock.MagicMock()
@@ -270,6 +271,43 @@ class MarketDataTests(unittest.TestCase):
         self.assertTrue(any("/monthly/" in url for url in requested_urls))
         self.assertTrue(any("/daily/" in url for url in requested_urls))
 
+
+    def test_daily_archive_gap_is_rejected_with_source_evidence(self):
+        def make_archive(rows, member_name):
+            csv_buffer = io.StringIO()
+            writer = csv.writer(csv_buffer)
+            writer.writerow(["open_time", "open", "high", "low", "close", "volume"])
+            writer.writerows(rows)
+            archive_buffer = io.BytesIO()
+            with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(member_name, csv_buffer.getvalue())
+            return archive_buffer.getvalue()
+
+        monthly_rows = self._minute_fixture(59)
+        monthly_bytes = make_archive(monthly_rows, "BTCUSDT-1m-1970-01.csv")
+        daily_rows = self._minute_fixture(1440)
+        del daily_rows[30]  # Keep order, but create a real coverage gap.
+        daily_bytes = make_archive(daily_rows, "BTCUSDT-1m-1970-01-01.csv")
+
+        def response(payload):
+            mocked_response = unittest.mock.MagicMock()
+            mocked_response.__enter__.return_value.read.return_value = payload
+            return mocked_response
+
+        with patch(
+            "btc_signal_lab.market_data.urlopen",
+            side_effect=[response(monthly_bytes), response(daily_bytes)],
+        ):
+            with self.assertRaisesRegex(ValueError, "daily same-venue fallback failed") as raised:
+                download_binance_1m_archive_aggregate(
+                    "BTCUSDT", "1h", "1970-01-01T00:00:00Z",
+                    "1970-01-01T01:00:00Z", timeout=1.0,
+                )
+
+        message = str(raised.exception)
+        self.assertIn("daily archive has incomplete UTC-day coverage", message)
+        self.assertIn("archive_evidence", message)
+        self.assertIn("BTCUSDT-1m-1970-01-01.zip", message)
 
     def test_daily_replacement_preserves_day_order_when_monthly_has_late_rows(self):
         def make_archive(rows, member_name):
