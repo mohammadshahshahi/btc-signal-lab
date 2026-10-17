@@ -41,6 +41,17 @@ class LiveMarketDataTests(unittest.TestCase):
         self.assertEqual(provenance["live_orders_submitted"], 0)
         self.assertEqual(mocked.call_count, 1)
 
+    def test_supports_15m_interval_used_by_workflow(self):
+        step = 900_000
+        now_ms = 120 * step + 30_000
+        with self._mock_response(self._payload(step=step)) as _:
+            rows, provenance = fetch_latest_closed_klines(
+                "BTCUSDT", "15m", limit=121, now_ms=now_ms
+            )
+        self.assertEqual(len(rows), 120)
+        self.assertEqual(provenance["interval"], "15m")
+        self.assertEqual(rows[-1]["timestamp_ms"], 119 * step)
+
     def test_rejects_gap_in_live_payload(self):
         step = 3_600_000
         with self._mock_response(self._payload(missing_index=60)) as _:
