@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feat/signal-engine
+      - feat/current-paper-signal
   pull_request:
     branches:
       - main
