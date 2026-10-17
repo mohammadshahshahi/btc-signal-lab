@@ -430,17 +430,33 @@ def download_binance_1m_archive_aggregate(
                 "url": daily_url, "sha256": hashlib.sha256(daily_bytes).hexdigest()
             })
             daily_rows = read_archive(daily_bytes, daily_url)
-            # Validate the daily source in its published order before replacing
-            # any monthly rows. Never silently sort a source archive to hide defects.
+            # Validate source order and full UTC-day coverage before replacing
+            # monthly rows. Ordered rows alone do not prove the daily archive is complete.
             previous_timestamp: int | None = None
+            day_start_ms = int(datetime.fromisoformat(day).replace(
+                tzinfo=timezone.utc
+            ).timestamp() * 1000)
+            expected_daily_count = 24 * 60
             for index, row in enumerate(daily_rows):
                 timestamp = int(row[0])
+                expected_timestamp = day_start_ms + index * minute_step
                 if previous_timestamp is not None and timestamp <= previous_timestamp:
                     raise ValueError(
                         f"daily archive is not strictly ordered at index {index}: "
                         f"timestamp {timestamp} follows {previous_timestamp}"
                     )
+                if timestamp != expected_timestamp:
+                    raise ValueError(
+                        f"daily archive has incomplete UTC-day coverage for {day} at index {index}: "
+                        f"expected timestamp {expected_timestamp}, got {timestamp}; "
+                        f"expected {expected_daily_count} consecutive 1m candles, got {len(daily_rows)} rows"
+                    )
                 previous_timestamp = timestamp
+            if len(daily_rows) != expected_daily_count:
+                raise ValueError(
+                    f"daily archive has incomplete UTC-day coverage for {day}: "
+                    f"expected {expected_daily_count} consecutive 1m candles, got {len(daily_rows)} rows"
+                )
             daily_rows_by_day[day] = daily_rows
         except Exception as exc:
             daily_archive_failures.append({
