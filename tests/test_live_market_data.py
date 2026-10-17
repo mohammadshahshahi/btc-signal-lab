@@ -62,7 +62,7 @@ class LiveMarketDataTests(unittest.TestCase):
         with self._mock_response(self._payload(count=30)) as _:
             with self.assertRaisesRegex(ValueError, "insufficient closed candles"):
                 fetch_latest_closed_klines(
-                    "BTCUSDT", "1h", limit=30, now_ms=31 * step + 30_000
+                    "BTCUSDT", "1h", limit=51, now_ms=31 * step + 30_000
                 )
 
     def test_rejects_bad_limit(self):
