@@ -232,7 +232,7 @@ class MarketDataTests(unittest.TestCase):
         message = str(raised.exception)
         self.assertIn("BTCUSDT-1m-1970-01.zip", message)
         self.assertIn("sha256", message)
-        self.assertIn("incomplete 1m source range", message)
+        self.assertIn("daily archive has incomplete UTC-day coverage", message)
 
 
     def test_daily_archive_repairs_monthly_gap_from_same_venue(self):
