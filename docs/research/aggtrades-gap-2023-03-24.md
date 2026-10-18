@@ -25,9 +25,22 @@ The aggTrades archive contains 1,142,284 rows. Aggregate-trade IDs are continuou
 
 The 14:00 UTC reconstructed bar exactly matches the official kline for OHLC, base volume, quote volume, taker-buy base/quote volumes, and underlying trade count (7,682). This confirms that the aggregate-trade reconstruction logic can reconcile a boundary candle, but does not establish coverage or recoverability inside the missing interval. The 12:39 comparison is also unavailable from aggTrades because the source time gap begins earlier.
 
+## Independent raw individual-trades check
+
+A second isolated diagnostic was added at `scripts/research_raw_trades_gap.py` and run against the official daily Spot individual-trades archive:
+
+- Archive: [BTCUSDT-trades-2023-03-24.zip](https://data.binance.vision/data/spot/daily/trades/BTCUSDT/BTCUSDT-trades-2023-03-24.zip)
+- The archive returned HTTP 200 and contained **1,511,137 individual-trade rows**.
+- Individual trade IDs were continuous and timestamps had no regressions.
+- Rows from 12:40:00 through 13:59:59 UTC: **0**; reconstructed target minutes: **0/80**.
+- The largest adjacent-trade timestamp gap was the same **9,156,916 ms** from 11:27:23.146 UTC to 14:00:00.062 UTC.
+- Thus the raw individual-trades archive independently exhibits the same coverage gap as aggTrades; it does not supply trades from which the missing bars could be reconstructed.
+
+The workflow's successful execution is [run 39171841573](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/39171841573). The subsequent hash-reporting refinement is tracked by the latest run linked in the PR; only its successful result should be treated as current evidence.
+
 ## Verdict
 
-**aggTrades is insufficient to reconstruct this interval from the retrieved official daily archive.** The fact that aggregate-trade IDs are continuous does not compensate for the 2.5-hour timestamp gap. The official kline source remains incomplete (1,360 rows rather than 1,440 for the UTC day), and the strict historical validation gate remains **FAILED**.
+**Both official Spot aggTrades and individual-trades archives are insufficient to reconstruct this interval from the retrieved daily archives.** The fact that aggregate-trade IDs are continuous does not compensate for the 2.5-hour timestamp gap. The official kline source remains incomplete (1,360 rows rather than 1,440 for the UTC day), and the strict historical validation gate remains **FAILED**.
 
 - Do not patch the primary kline dataset with this artifact.
 - Do not interpolate, create empty candles, or mix exchanges.
@@ -37,4 +50,4 @@ The 14:00 UTC reconstructed bar exactly matches the official kline for OHLC, bas
 
 ## Reproduction
 
-Run the GitHub Actions workflow **Binance aggTrades Gap Evidence (Research Only)** on branch `research/aggtrades-gap-evidence`. It retrieves both official ZIPs, validates schema/order, hashes raw sources, checks timestamp coverage and neighboring bars, and emits a JSON report plus a segregated CSV. The report always sets `strict_primary_kline_gate_passed: false`.
+Run the GitHub Actions workflow **Binance Historical Gap Evidence (Research Only)** on branch `research/aggtrades-gap-evidence`. It retrieves official aggTrades, individual-trades, and 1m kline ZIPs; validates schema/order, hashes raw sources, checks timestamp coverage and candle reconstruction, and emits JSON reports plus segregated sensitivity CSVs. The report always sets `strict_primary_kline_gate_passed: false`.
