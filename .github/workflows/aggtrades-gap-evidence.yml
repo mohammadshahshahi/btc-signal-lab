@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - research/aggtrades-gap-evidence
+    paths:
+      - 'scripts/research_aggtrades_gap.py'
+      - 'scripts/research_raw_trades_gap.py'
   workflow_dispatch:
 
 permissions:
