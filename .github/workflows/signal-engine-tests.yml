@@ -6,6 +6,7 @@ on:
       - main
       - feat/signal-engine
       - feat/current-paper-signal
+      - fix/live-provider-order-guard
   pull_request:
     branches:
       - main
