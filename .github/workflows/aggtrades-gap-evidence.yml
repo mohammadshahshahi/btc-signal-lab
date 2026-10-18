@@ -1,4 +1,4 @@
-name: Binance aggTrades Gap Evidence (Research Only)
+name: Binance Historical Gap Evidence (Research Only)
 
 on:
   push:
@@ -10,22 +10,24 @@ permissions:
   contents: read
 
 concurrency:
-  group: aggtrades-gap-evidence
+  group: historical-gap-evidence
   cancel-in-progress: false
 
 jobs:
-  reconstruct-isolated-sensitivity-evidence:
+  inspect-official-sources:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out research branch
         uses: actions/checkout@v4
-      - name: Run isolated same-venue aggTrades investigation
+      - name: Inspect official aggregate trades
         run: python scripts/research_aggtrades_gap.py
-      - name: Upload evidence report and reconstructed sensitivity bars
+      - name: Inspect official individual trades
+        run: python scripts/research_raw_trades_gap.py
+      - name: Upload segregated evidence only
         uses: actions/upload-artifact@v4
         with:
-          name: binance-aggtrades-gap-evidence-${{ github.run_id }}
+          name: binance-historical-gap-evidence-${{ github.run_id }}
           path: aggtrades-gap-artifacts/
           if-no-files-found: error
           retention-days: 90
