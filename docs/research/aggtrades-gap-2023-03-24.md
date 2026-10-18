@@ -1,0 +1,40 @@
+# Binance Spot aggTrades investigation: 2023-03-24 BTCUSDT gap
+
+**Status:** unresolved source-coverage blocker. This report is a separate research/sensitivity record and does not modify or certify the canonical kline dataset.
+
+## Question
+
+Can the official Binance Spot BTCUSDT aggregate-trade archive reconstruct the 80 missing one-minute kline intervals from 2023-03-24 12:40:00 through 13:59:59 UTC?
+
+## Retrieval evidence
+
+Retrieved by GitHub Actions on 2026-10-18 UTC.
+
+| Source | HTTP | Downloaded bytes | SHA-256 |
+|---|---:|---:|---|
+| [Official daily aggTrades ZIP](https://data.binance.vision/data/spot/daily/aggTrades/BTCUSDT/BTCUSDT-aggTrades-2023-03-24.zip) | 200 | 16,372,366 | `e4a0626d79f7476485c8eb71caf466ebb939c6863300cc4456ba27ff13914241` |
+| [Official daily 1m kline ZIP](https://data.binance.vision/data/spot/daily/klines/BTCUSDT/1m/BTCUSDT-1m-2023-03-24.zip) | 200 | 65,200 | `305d0f6cdb8a6cfd8063a7d48c66f14b33727d934857746d549663e94b41312d` |
+
+The aggTrades archive contains 1,142,284 rows. Aggregate-trade IDs are continuous from 2,583,723,514 through 2,584,865,797 and no timestamp regressions were observed. However, timestamp coverage is incomplete:
+
+- Last aggregate trade before the target interval: ID `2584169633` at **2023-03-24 11:27:23.146 UTC**.
+- First aggregate trade at/after 14:00 UTC: ID `2584169634` at **2023-03-24 14:00:00.062 UTC**.
+- The two IDs are consecutive, but timestamps jump by **9,156,916 ms (2 h 32 min 36.916 s)**.
+- Rows observed from 12:40:00 to 13:59:59 UTC: **0**.
+- Candidate reconstructed minutes in the requested 80-minute interval: **0/80**. The tool does not fabricate empty-minute bars.
+
+The 14:00 UTC reconstructed bar exactly matches the official kline for OHLC, base volume, quote volume, taker-buy base/quote volumes, and underlying trade count (7,682). This confirms that the aggregate-trade reconstruction logic can reconcile a boundary candle, but does not establish coverage or recoverability inside the missing interval. The 12:39 comparison is also unavailable from aggTrades because the source time gap begins earlier.
+
+## Verdict
+
+**aggTrades is insufficient to reconstruct this interval from the retrieved official daily archive.** The fact that aggregate-trade IDs are continuous does not compensate for the 2.5-hour timestamp gap. The official kline source remains incomplete (1,360 rows rather than 1,440 for the UTC day), and the strict historical validation gate remains **FAILED**.
+
+- Do not patch the primary kline dataset with this artifact.
+- Do not interpolate, create empty candles, or mix exchanges.
+- Do not claim Recovery/1h historical validation passed.
+- Keep PR #12 Draft/unmerged until an independently verifiable, protocol-compliant source is found or the blocker is explicitly accepted as unresolved.
+- The evidence workflow is [run 39112022325](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/39112022325); the report and empty sensitivity CSV are available in its artifact.
+
+## Reproduction
+
+Run the GitHub Actions workflow **Binance aggTrades Gap Evidence (Research Only)** on branch `research/aggtrades-gap-evidence`. It retrieves both official ZIPs, validates schema/order, hashes raw sources, checks timestamp coverage and neighboring bars, and emits a JSON report plus a segregated CSV. The report always sets `strict_primary_kline_gate_passed: false`.
