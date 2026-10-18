@@ -80,7 +80,7 @@ def evaluate_forward_horizon(
         direction = result.get("direction")
         if direction is None:
             direction = DIRECTION_MAP.get(result.get("signal"))
-        if direction not in {"LONG", "SHORT", "NEUTRAL"}:
+        if direction not in {"LONG", "SHORT", "BEARISH", "NEUTRAL"}:
             raise ValueError(f"signal_fn returned unsupported direction: {direction!r}")
 
         target_index = index + horizon_bars
@@ -92,7 +92,7 @@ def evaluate_forward_horizon(
             hit = forward_return_pct > band
             long_hits += int(hit)
             directional_returns.append(forward_return_pct)
-        elif direction == "SHORT":
+        elif direction in {"SHORT", "BEARISH"}:
             short_count += 1
             hit = forward_return_pct < -band
             short_hits += int(hit)
