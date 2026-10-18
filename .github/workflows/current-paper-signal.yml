@@ -63,6 +63,13 @@ jobs:
           signal["code_commit"] = os.environ["CODE_COMMIT"]
           signal["generated_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
           signal["execution_mode"] = "paper_only"
+          signal["position_semantics"] = {
+              "mode": "long_only_spot",
+              "BUY": "open_long_if_flat",
+              "SELL": "close_long_if_open",
+              "HOLD": "no_action",
+              "short_positions_supported": False,
+          }
           signal["live_orders_submitted"] = 0
 
           output = Path("current-signal-artifact")
