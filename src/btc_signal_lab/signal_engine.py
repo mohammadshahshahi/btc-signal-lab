@@ -281,9 +281,11 @@ def generate_signal(
         else:
             reasons.append("score_neutral")
 
-    direction = {"BUY": "LONG", "SELL": "SHORT", "HOLD": "NEUTRAL"}[signal]
+    # Direction describes market bias, not a short-position instruction.
+    # The execution/backtest contract is long-only spot: SELL closes a long.
+    direction = {"BUY": "LONG", "SELL": "BEARISH", "HOLD": "NEUTRAL"}[signal]
     return {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "mode": "paper_trading",
         "symbol": symbol.strip().upper(),
         "timeframe": timeframe.strip(),
@@ -293,7 +295,7 @@ def generate_signal(
         "score_components": {
             key: round(value, 8) for key, value in score_components.items()
         },
-        "score_thresholds": {"long": 70.0, "short": 30.0},
+        "score_thresholds": {"bullish": 70.0, "bearish": 30.0},
         "price": close,
         "indicators": values,
         "reasons": reasons,

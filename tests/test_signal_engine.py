@@ -72,13 +72,13 @@ class IndicatorTests(unittest.TestCase):
 
     def test_signal_contract_is_json_serializable_and_paper_only(self):
         result = generate_signal(candles_from_closes(range(1, 61)))
-        self.assertEqual(result["schema_version"], "1.1")
+        self.assertEqual(result["schema_version"], "1.2")
         self.assertEqual(result["mode"], "paper_trading")
         self.assertIn(result["signal"], {"BUY", "SELL", "HOLD"})
-        self.assertIn(result["direction"], {"LONG", "SHORT", "NEUTRAL"})
+        self.assertIn(result["direction"], {"LONG", "BEARISH", "NEUTRAL"})
         self.assertGreaterEqual(result["score"], 0.0)
         self.assertLessEqual(result["score"], 100.0)
-        self.assertEqual(result["score_thresholds"], {"long": 70.0, "short": 30.0})
+        self.assertEqual(result["score_thresholds"], {"bullish": 70.0, "bearish": 30.0})
         self.assertEqual(result["symbol"], "BTC/USDT")
         self.assertEqual(set(result["indicators"]), {
             "ema20", "ema50", "rsi14", "macd", "macd_signal",
@@ -142,7 +142,7 @@ class IndicatorTests(unittest.TestCase):
             result = engine.generate_signal(data)
         self.assertEqual(result["signal"], "SELL")
         self.assertEqual(result["reasons"], ["bearish_score_threshold"])
-        self.assertEqual(result["direction"], "SHORT")
+        self.assertEqual(result["direction"], "BEARISH")
         self.assertLessEqual(result["score"], 30.0)
 
     def test_insufficient_history_fails_closed_to_hold(self):

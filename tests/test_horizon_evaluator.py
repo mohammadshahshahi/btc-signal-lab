@@ -52,6 +52,16 @@ class ForwardHorizonTests(unittest.TestCase):
         self.assertEqual(result["observations"][0]["direction"], "LONG")
         self.assertEqual(result["directional_accuracy_pct"], 100.0)
 
+    def test_bearish_market_bias_is_evaluated_without_short_execution_semantics(self):
+        data = candles([100, 99, 98, 97])
+        result = evaluate_forward_horizon(
+            data, horizon_bars=2,
+            signal_fn=lambda history: {"direction": "BEARISH"},
+        )
+        self.assertEqual(result["observations"][0]["direction"], "BEARISH")
+        self.assertEqual(result["short_count"], 2)
+        self.assertEqual(result["short_hit_rate_pct"], 100.0)
+
     def test_neutral_band_and_all_neutral(self):
         data = candles([100, 100.01, 100.02, 100.03])
         result = evaluate_forward_horizon(
