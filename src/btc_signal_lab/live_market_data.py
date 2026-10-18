@@ -62,7 +62,26 @@ def fetch_latest_closed_klines(
     if not isinstance(payload, list):
         raise ValueError(f"unexpected Binance kline response: {payload!r}")
 
-    # Normalize in provider order; do not sort input to conceal provider defects.
+    # Validate source order and interval alignment BEFORE calling normalize_klines,
+    # whose historical-data contract sorts timestamps. Live ingestion must never
+    # let that sorting conceal an upstream ordering/alignment defect.
+    previous_open_ms = None
+    for index, raw in enumerate(payload):
+        if not isinstance(raw, (list, tuple)) or len(raw) < 6:
+            raise ValueError(f"kline[{index}] must contain at least six fields")
+        try:
+            opened_ms = int(raw[0])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"kline[{index}] has an invalid open timestamp") from exc
+        if opened_ms % step != 0:
+            raise ValueError(f"kline[{index}] timestamp {opened_ms} is not aligned to {interval}")
+        if previous_open_ms is not None and opened_ms <= previous_open_ms:
+            raise ValueError(
+                f"provider timestamps are not strictly increasing at row {index}: "
+                f"{previous_open_ms} -> {opened_ms}"
+            )
+        previous_open_ms = opened_ms
+
     normalized = normalize_klines(payload, 0, observed_now_ms + step, interval)
     closed = [row for row in normalized if row["timestamp_ms"] + step <= observed_now_ms]
     if len(closed) < MIN_SIGNAL_CANDLES:
