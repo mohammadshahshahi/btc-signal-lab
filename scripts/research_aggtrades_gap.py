@@ -95,6 +95,24 @@ def main() -> int:
             timestamp_regression_count += 1
             if len(timestamp_regressions) < 100:
                 timestamp_regressions.append({"row": row_num, "previous_ms": last_trade_time, "current_ms": ts})
+        if last_trade_time is not None:
+            delta_ms = ts - last_trade_time
+            if delta_ms > max_timestamp_gap_ms:
+                max_timestamp_gap_ms = delta_ms
+                max_timestamp_gap_examples = [{"previous_ms": last_trade_time, "current_ms": ts, "delta_ms": delta_ms}]
+            elif delta_ms == max_timestamp_gap_ms and delta_ms > 0 and len(max_timestamp_gap_examples) < 20:
+                max_timestamp_gap_examples.append({"previous_ms": last_trade_time, "current_ms": ts, "delta_ms": delta_ms})
+        if ts < GAP_START:
+            rows_before_gap += 1
+            nearest_before_gap = {"timestamp_ms": ts, "aggtrade_id": agg_id}
+        elif ts < GAP_END:
+            rows_in_gap += 1
+        else:
+            rows_after_gap += 1
+            if first_at_or_after_gap is None:
+                first_at_or_after_gap = {"timestamp_ms": ts, "aggtrade_id": agg_id}
+        min_trade_ts = ts if min_trade_ts is None else min(min_trade_ts, ts)
+        max_trade_ts = ts if max_trade_ts is None else max(max_trade_ts, ts)
         last_agg_id, last_trade_time = agg_id, ts
         min_id = agg_id if min_id is None else min(min_id, agg_id)
         max_id = agg_id if max_id is None else max(max_id, agg_id)
