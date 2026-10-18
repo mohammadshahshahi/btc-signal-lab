@@ -30,13 +30,13 @@ The 14:00 UTC reconstructed bar exactly matches the official kline for OHLC, bas
 A second isolated diagnostic was added at `scripts/research_raw_trades_gap.py` and run against the official daily Spot individual-trades archive:
 
 - Archive: [BTCUSDT-trades-2023-03-24.zip](https://data.binance.vision/data/spot/daily/trades/BTCUSDT/BTCUSDT-trades-2023-03-24.zip)
-- The archive returned HTTP 200 and contained **1,511,137 individual-trade rows**.
+- The archive returned HTTP 200, downloaded **22,008,845 bytes**, SHA-256 `bceaa0b664b055318c22e509d33c04d532da143e7de41ca2fc3457100439c587`, and contained **1,511,137 individual-trade rows**.
 - Individual trade IDs were continuous and timestamps had no regressions.
 - Rows from 12:40:00 through 13:59:59 UTC: **0**; reconstructed target minutes: **0/80**.
 - The largest adjacent-trade timestamp gap was the same **9,156,916 ms** from 11:27:23.146 UTC to 14:00:00.062 UTC.
 - Thus the raw individual-trades archive independently exhibits the same coverage gap as aggTrades; it does not supply trades from which the missing bars could be reconstructed.
 
-The workflow's successful execution is [run 39171841573](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/39171841573). The subsequent hash-reporting refinement is tracked by the latest run linked in the PR; only its successful result should be treated as current evidence.
+The combined workflow completed successfully in [run 39171923501](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/39171923501), using commit `7bd5f1ef16e3a70f202e437fc750b22958aaacec`. Its artifact is available from that run. This run includes the source hash above.
 
 ## Verdict
 
