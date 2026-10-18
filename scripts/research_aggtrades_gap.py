@@ -69,7 +69,9 @@ def main() -> int:
     last_trade_time = None
     agg_rows = 0
     agg_id_breaks = []
+    agg_id_break_count = 0
     timestamp_regressions = []
+    timestamp_regression_count = 0
     min_id = max_id = None
     for row_num, row in enumerate(zip_rows(agg_bytes), start=1):
         if len(row) < 8:
@@ -80,10 +82,13 @@ def main() -> int:
         if price_d <= 0 or qty_d <= 0:
             raise ValueError(f"non-positive price/quantity at aggTrades row {row_num}")
         if last_agg_id is not None and agg_id != last_agg_id + 1:
+            agg_id_break_count += 1
             if len(agg_id_breaks) < 100:
                 agg_id_breaks.append({"previous": last_agg_id, "current": agg_id})
         if last_trade_time is not None and ts < last_trade_time:
-            timestamp_regressions.append({"row": row_num, "previous_ms": last_trade_time, "current_ms": ts})
+            timestamp_regression_count += 1
+            if len(timestamp_regressions) < 100:
+                timestamp_regressions.append({"row": row_num, "previous_ms": last_trade_time, "current_ms": ts})
         last_agg_id, last_trade_time = agg_id, ts
         min_id = agg_id if min_id is None else min(min_id, agg_id)
         max_id = agg_id if max_id is None else max(max_id, agg_id)
@@ -184,9 +189,9 @@ def main() -> int:
         "aggtrades_rows": agg_rows,
         "aggtrade_id_min": min_id,
         "aggtrade_id_max": max_id,
-        "aggtrade_id_break_count_sampled": len(agg_id_breaks),
-        "aggtrade_id_break_examples": agg_id_breaks[:20],
-        "timestamp_regression_count": len(timestamp_regressions),
+        "aggtrade_id_break_count": agg_id_break_count,
+        "aggtrade_id_break_examples_sample": agg_id_breaks[:20],
+        "timestamp_regression_count": timestamp_regression_count,
         "timestamp_regression_examples": timestamp_regressions[:20],
         "reconstructed_minutes_in_gap": len(expected_gap) - len(missing_reconstructed),
         "minutes_without_aggtrades_in_gap": [datetime.fromtimestamp(ts / 1000, timezone.utc).isoformat().replace("+00:00", "Z") for ts in missing_reconstructed],
@@ -196,8 +201,8 @@ def main() -> int:
         "strict_primary_kline_gate_passed": False,
         "sensitivity_candidate": (
             not missing_reconstructed
-            and not agg_id_breaks
-            and not timestamp_regressions
+            and agg_id_break_count == 0
+            and timestamp_regression_count == 0
             and all(item.get("status") == "MATCH" for item in comparisons)
         ),
         "limitations": [
