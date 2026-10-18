@@ -178,7 +178,7 @@ def main() -> int:
     report_path = OUT / "raw-trades-gap-report.json"
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"report": str(report_path), "csv": str(csv_path),
-                      "raw_trade_rows": count, "target_rows": target_rows,
+                      "raw_trades_archive": trade_meta, "official_kline_archive": kline_meta,\n                      "raw_trade_rows": count, "target_rows": target_rows,
                       "reconstructed_target_minutes": report["reconstructed_target_minutes"],
                       "trade_id_discontinuity_count": id_breaks,
                       "timestamp_regression_count": timestamp_regressions,
