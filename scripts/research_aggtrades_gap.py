@@ -68,6 +68,12 @@ def main() -> int:
     last_agg_id = None
     last_trade_time = None
     agg_rows = 0
+    min_trade_ts = max_trade_ts = None
+    rows_before_gap = rows_in_gap = rows_after_gap = 0
+    nearest_before_gap = None
+    first_at_or_after_gap = None
+    max_timestamp_gap_ms = 0
+    max_timestamp_gap_examples = []
     agg_id_breaks = []
     agg_id_break_count = 0
     timestamp_regressions = []
@@ -187,6 +193,17 @@ def main() -> int:
         "aggtrades_archive": agg_meta,
         "official_kline_archive": kline_meta,
         "aggtrades_rows": agg_rows,
+        "aggtrades_timestamp_min_ms": min_trade_ts,
+        "aggtrades_timestamp_min_utc": datetime.fromtimestamp(min_trade_ts / 1000, timezone.utc).isoformat().replace("+00:00", "Z") if min_trade_ts is not None else None,
+        "aggtrades_timestamp_max_ms": max_trade_ts,
+        "aggtrades_timestamp_max_utc": datetime.fromtimestamp(max_trade_ts / 1000, timezone.utc).isoformat().replace("+00:00", "Z") if max_trade_ts is not None else None,
+        "aggtrade_rows_before_gap": rows_before_gap,
+        "aggtrade_rows_in_gap": rows_in_gap,
+        "aggtrade_rows_at_or_after_gap_end": rows_after_gap,
+        "nearest_aggtrade_before_gap": nearest_before_gap,
+        "first_aggtrade_at_or_after_gap_end": first_at_or_after_gap,
+        "maximum_adjacent_aggtrade_timestamp_gap_ms": max_timestamp_gap_ms,
+        "maximum_timestamp_gap_examples": max_timestamp_gap_examples,
         "aggtrade_id_min": min_id,
         "aggtrade_id_max": max_id,
         "aggtrade_id_break_count": agg_id_break_count,
