@@ -8,6 +8,7 @@ The current signal path and historical backtests are intentionally separate:
 - `src/btc_signal_lab/live_market_data.py` fetches recent public Binance Spot candles, discards the still-forming candle, and fails closed on gaps, malformed rows, insufficient history, or stale data. It records source, observation time, newest closed candle, response SHA-256, and confirms that no live order was submitted.
 - `.github/workflows/current-paper-signal.yml` generates a paper-only BTCUSDT signal hourly and can also be run manually for 15m, 1h, or 4h. Each run uploads a JSON artifact with the signal, code commit, and data provenance. Scheduled workflows run only from the repository's default branch; merge this workflow before expecting scheduled runs.
 - Historical workflows remain responsible for reproducible backtests and regime validation. A failure in a 2023 historical window must not be silently patched or treated as proof that current candles are invalid; it remains a separate historical-data blocker.
+- Signal semantics are long-only spot: `BUY` means open a long position if flat, `SELL` means close an existing long, and `HOLD` means no action. The engine does **not** open short positions; a `SELL` output must not be interpreted as a short-entry instruction.
 - The live workflow does not place orders, guarantee uptime, or establish profitability. A successful run proves only that one fresh input window was fetched and a deterministic paper signal was produced.
 
 ### Known historical blocker
