@@ -60,6 +60,27 @@ class LiveMarketDataTests(unittest.TestCase):
                     "BTCUSDT", "1h", limit=120, now_ms=120 * step + 30_000
                 )
 
+    def test_rejects_out_of_order_provider_rows_before_normalization(self):
+        step = 3_600_000
+        payload = self._payload()
+        payload[60], payload[61] = payload[61], payload[60]
+        with self._mock_response(payload) as _:
+            with self.assertRaisesRegex(ValueError, "strictly increasing"):
+                fetch_latest_closed_klines(
+                    "BTCUSDT", "1h", limit=121, now_ms=120 * step + 30_000
+                )
+
+    def test_rejects_misaligned_provider_timestamps(self):
+        step = 3_600_000
+        payload = self._payload()
+        for row in payload:
+            row[0] += 1_000
+        with self._mock_response(payload) as _:
+            with self.assertRaisesRegex(ValueError, "not aligned"):
+                fetch_latest_closed_klines(
+                    "BTCUSDT", "1h", limit=121, now_ms=120 * step + 30_000
+                )
+
     def test_rejects_stale_latest_closed_candle(self):
         step = 3_600_000
         with self._mock_response(self._payload()) as _:
