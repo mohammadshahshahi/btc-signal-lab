@@ -67,7 +67,7 @@ def main() -> int:
     id_discontinuities = 0
     timestamp_regressions = 0
     previous_id = previous_ts = None
-    last_before = first_after = None
+    last_before = first_after = None\n    first_archive_trade = last_archive_trade = None
     first_target = last_target = None
     with zipfile.ZipFile(ZIP_PATH) as zf:
         names = [n for n in zf.namelist() if not n.endswith("/")]
@@ -110,7 +110,7 @@ def main() -> int:
         "last_trade_before_target": last_before,
         "first_trade_at_or_after_target_end": first_after,
         "strict_primary_kline_gate_passed": False,
-        "verdict": "MONTHLY_RAW_TRADES_CONTAIN_TARGET_TRADES" if target_rows else "MONTHLY_RAW_TRADES_ALSO_MISSING_TARGET_INTERVAL",
+        "verdict": ("MONTHLY_RAW_TRADES_CONTAIN_TARGET_TRADES" if target_rows else ("MONTHLY_ARCHIVE_DOES_NOT_COVER_TARGET_INTERVAL" if not (first_archive_trade and last_archive_trade and first_archive_trade["timestamp_ms"] <= START and last_archive_trade["timestamp_ms"] >= END) else "MONTHLY_RAW_TRADES_HAVE_ZERO_ROWS_IN_TARGET_INTERVAL")),
         "guardrails": ["streamed to disk", "never modifies canonical klines", "no synthetic bars", "no cross-venue substitution", "does not clear strict historical gate"],
     }
     path = OUT / "monthly-raw-trades-gap-report.json"
