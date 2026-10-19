@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stream-scan Binance's official monthly BTCUSDT Spot trades ZIP for the 2023-03-24 gap.
 
-The archive is large, so download to disk in chunks and never keep the ZIP in RAM.
+The archive is large, so download to disk in chunks and never keep the ZIP in RAM. This scan is intentionally isolated from canonical data.
 The scan is evidence-only and does not modify canonical candles.
 """
 from __future__ import annotations
