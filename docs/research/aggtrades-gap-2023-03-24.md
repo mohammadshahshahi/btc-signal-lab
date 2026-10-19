@@ -38,24 +38,35 @@ A second isolated diagnostic was added at `scripts/research_raw_trades_gap.py` a
 
 The combined workflow completed successfully in [run 39171923501](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/39171923501), using commit `7bd5f1ef16e3a70f202e437fc750b22958aaacec`. Its artifact is available from that run. This run includes the source hash above.
 
-## Official monthly 1m kline archive cross-check
+## Official monthly archive cross-checks
 
-To test whether the gap was only a defect in the daily ZIP, the official March monthly 1m kline archive was downloaded and compared with every daily kline row and each of the 80 target minutes:
+### Monthly 1m klines
+
+The official March monthly 1m kline ZIP was downloaded and compared with every daily kline row and the 80 target minutes:
 
 - Archive: [BTCUSDT-1m-2023-03.zip](https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2023-03.zip)
-- HTTP 200; 2,300,446 downloaded bytes; SHA-256 `5591171a15f210af647a2fb68ab8cbad45a3a595cfe9a0eec9d06e5e84928bec`.
-- Monthly archive rows: **44,560**; expected for 31 complete UTC days: **44,640**.
-- Target interval present in monthly archive: **0/80 minutes**; missing: **80/80 minutes**.
-- Daily-vs-monthly comparison: **0 mismatches** across all daily rows present in the daily archive.
-- HEAD-only metadata probes confirmed the monthly raw-trades and aggTrades objects exist, but advertised sizes are approximately **1.36 GB** and **2.66 GB** respectively. Their bodies were deliberately not downloaded merely to repeat the already-observed daily-source gap; this size check is recorded in the JSON evidence artifact.
+- HTTP 200; 2,300,446 bytes; SHA-256 `5591171a15f210af647a2fb68ab8cbad45a3a595cfe9a0eec9d06e5e84928bec`.
+- Rows: **44,560**, versus **44,640** expected for 31 complete UTC days.
+- Target interval: **0/80 bars**; daily-vs-monthly mismatches: **0** across overlapping daily rows.
 
-This cross-check rules out the narrower explanation that the 80-minute omission exists only in the daily kline ZIP: the official monthly kline ZIP reproduces the same omission. It does **not** establish why Binance's archived sources omit those minutes, and it does not justify synthesizing candles.
+This establishes that the monthly kline archive reproduces the daily archive's omission. It does not establish the root cause.
 
-Evidence workflow: [run 39217593146](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/39217593146) (successful). It contains the monthly archive checksum, row count, exact coverage result, and monthly-source size probes.
+### Monthly raw individual trades — coverage limitation discovered
+
+Workflow [39217754026](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/39217754026) successfully downloaded and scanned the official monthly raw-trades ZIP:
+
+- URL: [BTCUSDT-trades-2023-03.zip](https://data.binance.vision/data/spot/monthly/trades/BTCUSDT/BTCUSDT-trades-2023-03.zip)
+- Downloaded bytes: **1,359,283,280**; SHA-256: `256bd019875b8e0fcf779fa2600cfba2fe9fe83c3a487938f77ca4d5eab586f9`.
+- Binance-published `.CHECKSUM` matched the downloaded file.
+- CSV rows scanned: **98,667,010**; trade-ID discontinuities: **0**; timestamp regressions: **0**.
+- Critical caveat: the last row in this supposedly monthly archive is timestamped **2023-03-12 23:59:59.998 UTC**. There are no later rows at all in the archive scan, so it **does not cover March 24**.
+- Therefore, the reported zero target rows is **not evidence that there were no trades on March 24**. The monthly raw-trades object appears truncated or mislabeled in coverage; that needs separate verification against other dated daily files or Binance's archive metadata.
+
+The diagnostic script was corrected so future runs distinguish “archive does not cover target interval” from “archive covers target interval but has zero rows”. No raw-trades conclusion about March 24 should be drawn from this monthly ZIP.
 
 ## Verdict
 
-**Both official daily Spot aggTrades and individual-trades archives are insufficient to reconstruct this interval; the official monthly 1m kline archive also omits the same 80 minutes and exactly agrees with the incomplete daily archive on every overlapping row.** The fact that aggregate-trade IDs are continuous does not compensate for the 2.5-hour timestamp gap. The official kline source remains incomplete (1,360 rows rather than 1,440 for the UTC day), and the strict historical validation gate remains **FAILED**.
+**The official daily Spot aggTrades and daily individual-trades archives contain no rows for the interval, and the official monthly 1m kline archive reproduces the same 80-minute omission. The monthly raw individual-trades archive downloaded for this investigation ends on March 12, so it cannot independently confirm or refute trade coverage on March 24.** The fact that aggregate-trade IDs are continuous does not compensate for the 2.5-hour timestamp gap. The official kline source remains incomplete (1,360 rows rather than 1,440 for the UTC day), and the strict historical validation gate remains **FAILED**.
 
 - Do not patch the primary kline dataset with this artifact.
 - Do not interpolate, create empty candles, or mix exchanges.
