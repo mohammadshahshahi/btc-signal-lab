@@ -91,6 +91,11 @@ def main() -> int:
     klines_url = f"{BASE}/klines/{SYMBOL}/1m/{SYMBOL}-1m-{DAY}.zip"
     trade_bytes, trade_meta = fetch(trades_url)
     kline_bytes, kline_meta = fetch(klines_url)
+    monthly_kline_url = (
+        f"https://data.binance.vision/data/spot/monthly/klines/{SYMBOL}/1m/"
+        f"{SYMBOL}-1m-2023-03.zip"
+    )
+    monthly_kline_bytes, monthly_kline_meta = fetch(monthly_kline_url)
 
     # HEAD-only discovery first: avoid downloading large monthly archives until
     # availability and advertised sizes are known.
@@ -175,6 +180,33 @@ def main() -> int:
 
     fields = ["open", "high", "low", "close", "base_volume", "quote_volume",
               "taker_buy_base_volume", "taker_buy_quote_volume"]
+    monthly_official = {}
+    for line, row in enumerate(rows_from_zip(monthly_kline_bytes), 1):
+        if len(row) < 12:
+            raise ValueError(f"Monthly kline row {line} has {len(row)} columns; expected 12")
+        ts = int(row[0])
+        monthly_official[ts] = {
+            "open": dec(row[1]), "high": dec(row[2]), "low": dec(row[3]),
+            "close": dec(row[4]), "base_volume": dec(row[5]),
+            "quote_volume": dec(row[7]), "trade_count": int(row[8]),
+            "taker_buy_base_volume": dec(row[9]),
+            "taker_buy_quote_volume": dec(row[10]),
+        }
+    monthly_gap_rows = []
+    for ts in range(START, END, MINUTE):
+        bar = monthly_official.get(ts)
+        monthly_gap_rows.append({
+            "timestamp_utc": iso(ts),
+            "present_in_monthly_archive": bar is not None,
+            "bar": ({k: str(v) for k, v in bar.items()} if bar is not None else None),
+        })
+    daily_monthly_mismatches = []
+    for ts, day_bar in official.items():
+        month_bar = monthly_official.get(ts)
+        if month_bar is None:
+            daily_monthly_mismatches.append({"timestamp_utc": iso(ts), "status": "MISSING_IN_MONTHLY"})
+        elif any(day_bar[k] != month_bar[k] for k in [*fields, "trade_count"]):
+            daily_monthly_mismatches.append({"timestamp_utc": iso(ts), "status": "VALUE_MISMATCH"})
     comparisons = []
     for ts in [START - MINUTE, *range(START, END, MINUTE), END]:
         if ts not in bars:
@@ -207,6 +239,13 @@ def main() -> int:
         "symbol": SYMBOL, "day_utc": DAY, "target_start_utc": iso(START), "target_end_exclusive_utc": iso(END),
         "expected_gap_minutes": (END - START) // MINUTE,
         "raw_trades_archive": trade_meta, "official_kline_archive": kline_meta,
+        "monthly_kline_archive": monthly_kline_meta,
+        "monthly_kline_rows": len(monthly_official),
+        "monthly_kline_target_present_count": sum(x["present_in_monthly_archive"] for x in monthly_gap_rows),
+        "monthly_kline_target_missing_count": sum(not x["present_in_monthly_archive"] for x in monthly_gap_rows),
+        "monthly_kline_target_rows": monthly_gap_rows,
+        "daily_vs_monthly_kline_mismatch_count": len(daily_monthly_mismatches),
+        "daily_vs_monthly_kline_mismatch_examples": daily_monthly_mismatches[:20],
         "monthly_archive_head_probes": monthly_sources,
         "raw_trade_rows": count, "trade_id_min": min_id, "trade_id_max": max_id,
         "trade_id_discontinuity_count": id_breaks, "timestamp_regression_count": timestamp_regressions,
@@ -224,6 +263,12 @@ def main() -> int:
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"report": str(report_path), "csv": str(csv_path),
                       "raw_trades_archive": trade_meta, "official_kline_archive": kline_meta,
+                      "monthly_kline_archive": monthly_kline_meta,
+                      "monthly_kline_rows": len(monthly_official),
+                      "monthly_kline_target_present_count": sum(x["present_in_monthly_archive"] for x in monthly_gap_rows),
+                      "monthly_kline_target_missing_count": sum(not x["present_in_monthly_archive"] for x in monthly_gap_rows),
+                      "daily_vs_monthly_kline_mismatch_count": len(daily_monthly_mismatches),
+                      "daily_vs_monthly_kline_mismatch_examples": daily_monthly_mismatches[:20],
                       "monthly_archive_head_probes": monthly_sources,
         "raw_trade_rows": count, "target_rows": target_rows,
                       "reconstructed_target_minutes": report["reconstructed_target_minutes"],
