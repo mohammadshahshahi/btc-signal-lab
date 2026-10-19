@@ -84,6 +84,9 @@ def main() -> int:
                     id_discontinuities += 1
                 if previous_ts is not None and ts < previous_ts:
                     timestamp_regressions += 1
+                if first_archive_trade is None:
+                    first_archive_trade = {"trade_id": trade_id, "timestamp_ms": ts, "timestamp_utc": iso(ts)}
+                last_archive_trade = {"trade_id": trade_id, "timestamp_ms": ts, "timestamp_utc": iso(ts)}
                 if ts < START:
                     last_before = {"trade_id": trade_id, "timestamp_ms": ts, "timestamp_utc": iso(ts)}
                 elif ts < END:
@@ -106,6 +109,13 @@ def main() -> int:
         "target_interval_start_utc": iso(START),
         "target_interval_end_exclusive_utc": iso(END),
         "target_trade_rows": target_rows,
+        "first_archive_trade": first_archive_trade,
+        "last_archive_trade": last_archive_trade,
+        "archive_spans_target_interval": bool(
+            first_archive_trade and last_archive_trade
+            and first_archive_trade["timestamp_ms"] <= START
+            and last_archive_trade["timestamp_ms"] >= END
+        ),
         "first_target_trade": first_target,
         "last_target_trade": last_target,
         "last_trade_before_target": last_before,
