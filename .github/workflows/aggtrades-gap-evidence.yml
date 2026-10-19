@@ -1,0 +1,39 @@
+name: Binance Historical Gap Evidence (Research Only)
+
+on:
+  push:
+    branches:
+      - research/aggtrades-gap-evidence
+    paths:
+      - 'scripts/research_aggtrades_gap.py'
+      - 'scripts/research_raw_trades_gap.py'
+      - 'scripts/research_monthly_trades_gap.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historical-gap-evidence
+  cancel-in-progress: false
+
+jobs:
+  inspect-official-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out research branch
+        uses: actions/checkout@v4
+      - name: Inspect official aggregate trades
+        run: python scripts/research_aggtrades_gap.py
+      - name: Inspect official individual trades
+        run: python scripts/research_raw_trades_gap.py
+      - name: Stream-scan official monthly individual trades
+        run: python scripts/research_monthly_trades_gap.py
+      - name: Upload segregated evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: binance-historical-gap-evidence-${{ github.run_id }}
+          path: aggtrades-gap-artifacts/
+          if-no-files-found: error
+          retention-days: 90
