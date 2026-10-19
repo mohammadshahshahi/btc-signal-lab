@@ -38,6 +38,36 @@ def fetch(url: str) -> tuple[bytes, dict]:
                   "retrieved_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
 
 
+def probe_headers(url: str) -> dict:
+    """Probe archive metadata only; never downloads a monthly archive body."""
+    req = urllib.request.Request(
+        url,
+        method="HEAD",
+        headers={"User-Agent": "btc-signal-lab-gap-research/1.0"},
+    )
+    retrieved = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            headers = response.headers
+            return {
+                "url": url,
+                "http_status": response.status,
+                "content_length_header": headers.get("Content-Length"),
+                "last_modified": headers.get("Last-Modified"),
+                "etag": headers.get("ETag"),
+                "retrieved_at_utc": retrieved,
+                "body_downloaded": False,
+            }
+    except Exception as exc:
+        return {
+            "url": url,
+            "http_status": getattr(exc, "code", None),
+            "error": f"{type(exc).__name__}: {exc}",
+            "retrieved_at_utc": retrieved,
+            "body_downloaded": False,
+        }
+
+
 def rows_from_zip(data: bytes):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         names = [n for n in zf.namelist() if not n.endswith("/")]
@@ -61,6 +91,20 @@ def main() -> int:
     klines_url = f"{BASE}/klines/{SYMBOL}/1m/{SYMBOL}-1m-{DAY}.zip"
     trade_bytes, trade_meta = fetch(trades_url)
     kline_bytes, kline_meta = fetch(klines_url)
+
+    # HEAD-only discovery first: avoid downloading large monthly archives until
+    # availability and advertised sizes are known.
+    monthly_sources = {
+        "individual_trades": probe_headers(
+            f"https://data.binance.vision/data/spot/monthly/trades/{SYMBOL}/{SYMBOL}-trades-2023-03.zip"
+        ),
+        "aggregate_trades": probe_headers(
+            f"https://data.binance.vision/data/spot/monthly/aggTrades/{SYMBOL}/{SYMBOL}-aggTrades-2023-03.zip"
+        ),
+        "one_minute_klines": probe_headers(
+            f"https://data.binance.vision/data/spot/monthly/klines/{SYMBOL}/1m/{SYMBOL}-1m-2023-03.zip"
+        ),
+    }
 
     bars = {}
     count = 0
@@ -163,6 +207,7 @@ def main() -> int:
         "symbol": SYMBOL, "day_utc": DAY, "target_start_utc": iso(START), "target_end_exclusive_utc": iso(END),
         "expected_gap_minutes": (END - START) // MINUTE,
         "raw_trades_archive": trade_meta, "official_kline_archive": kline_meta,
+        "monthly_archive_head_probes": monthly_sources,
         "raw_trade_rows": count, "trade_id_min": min_id, "trade_id_max": max_id,
         "trade_id_discontinuity_count": id_breaks, "timestamp_regression_count": timestamp_regressions,
         "max_adjacent_timestamp_gap_ms": max_delta_ms, "max_adjacent_timestamp_gap": max_delta_example,
