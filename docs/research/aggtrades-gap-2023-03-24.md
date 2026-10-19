@@ -38,6 +38,17 @@ A second isolated diagnostic was added at `scripts/research_raw_trades_gap.py` a
 
 The combined workflow completed successfully in [run 39171923501](https://github.com/mohammadshahshahi/btc-signal-lab/actions/runs/39171923501), using commit `7bd5f1ef16e3a70f202e437fc750b22958aaacec`. Its artifact is available from that run. This run includes the source hash above.
 
+## Root cause identified: Binance Spot trading suspension
+
+The apparent 2023-03-24 gap is now explained by an official exchange outage, rather than evidence of a broken candle archive:
+
+- Binance's official blog states that Spot trading was disabled at **11:27 UTC** because of a trailing-stop-order matching-engine bug, and Spot trading resumed at **14:00 UTC**: [A Look Behind the Scenes at Why Spot Trading Temporarily Stopped](https://www.binance.com/en/blog/from-our-ceo/6789340645608890113).
+- Binance's official maintenance-complete announcement independently says Spot trading would resume at **14:00 UTC**: [Binance Support announcement](https://www.binance.com/en/support/announcement/detail/813a31506e9f478ea8c1058b425df87a).
+
+The last raw trade observed in the daily archive is at **11:27:23.146 UTC**, and the first is at **14:00:00.062 UTC**. That is consistent with the published halt. The 80 target minutes (12:40–13:59 UTC) fall entirely inside the suspension, so zero trades and no minute candles in that interval are expected. The measured timestamp gap is 2h32m36.916s from the last pre-halt trade to the first post-resumption trade.
+
+**Important validation distinction:** this resolves the *historical explanation* for the gap, but it does not mean the strict continuous-candle validator should silently pass. The pipeline must represent documented exchange suspensions explicitly and exclude affected time buckets from continuous-candle backtests or handle them under a reviewed outage-aware contract. Do not fabricate zero-volume candles, interpolate prices, or bridge this outage as if the market were trading. Until the contract and tests are updated, keep the strict gate fail-closed and PR #12 Draft.
+
 ## Official monthly archive cross-checks
 
 ### Monthly 1m klines
@@ -66,7 +77,7 @@ The diagnostic script was corrected so future runs distinguish “archive does n
 
 ## Verdict
 
-**The official daily Spot aggTrades and daily individual-trades archives contain no rows for the interval, and the official monthly 1m kline archive reproduces the same 80-minute omission. The monthly raw individual-trades archive downloaded for this investigation ends on March 12, so it cannot independently confirm or refute trade coverage on March 24.** The fact that aggregate-trade IDs are continuous does not compensate for the 2.5-hour timestamp gap. The official kline source remains incomplete (1,360 rows rather than 1,440 for the UTC day), and the strict historical validation gate remains **FAILED**.
+**The official daily Spot aggTrades and daily individual-trades archives contain no rows for the interval, and the official monthly 1m kline archive reproduces the same omission. Binance's official outage announcement explains why: Spot trading was halted at 11:27 UTC and resumed at 14:00 UTC.** The fact that aggregate-trade IDs are continuous does not compensate for the 2.5-hour timestamp gap. The official kline source remains incomplete (1,360 rows rather than 1,440 for the UTC day), and the strict historical validation gate remains **FAILED**.
 
 - Do not patch the primary kline dataset with this artifact.
 - Do not interpolate, create empty candles, or mix exchanges.
