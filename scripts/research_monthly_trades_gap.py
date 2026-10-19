@@ -67,7 +67,8 @@ def main() -> int:
     id_discontinuities = 0
     timestamp_regressions = 0
     previous_id = previous_ts = None
-    last_before = first_after = None\n    first_archive_trade = last_archive_trade = None
+    last_before = first_after = None
+    first_archive_trade = last_archive_trade = None
     first_target = last_target = None
     with zipfile.ZipFile(ZIP_PATH) as zf:
         names = [n for n in zf.namelist() if not n.endswith("/")]
