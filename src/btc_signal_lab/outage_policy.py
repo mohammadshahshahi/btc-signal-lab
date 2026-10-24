@@ -43,6 +43,7 @@ def classify_gap(
     gap_end_utc: str,
     *,
     venue: str,
+    market: str,
     symbol: str,
     events: Iterable[dict[str, Any]],
     mode: str = "strict",
@@ -60,6 +61,8 @@ def classify_gap(
         raise ValueError("gap_end_utc must be later than gap_start_utc")
     if not isinstance(venue, str) or not venue.strip():
         raise ValueError("venue must be a non-empty string")
+    if not isinstance(market, str) or not market.strip():
+        raise ValueError("market must be a non-empty string")
     if not isinstance(symbol, str) or not symbol.strip():
         raise ValueError("symbol must be a non-empty string")
 
@@ -72,9 +75,10 @@ def classify_gap(
             if not _valid_sources(event.get("sources")):
                 continue
             venue_matches = event.get("venue") == venue
+            market_matches = event.get("market") == market
             scope = event.get("symbol_scope")
             symbol_matches = scope == "all_spot_symbols" or scope == symbol
-            if venue_matches and symbol_matches and event_start <= start and end <= event_end:
+            if venue_matches and market_matches and symbol_matches and event_start <= start and end <= event_end:
                 if mode == "strict":
                     return {
                         "eligible": False,

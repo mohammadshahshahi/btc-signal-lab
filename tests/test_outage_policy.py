@@ -19,8 +19,8 @@ EVENT = {
 }
 
 
-def classify(start, end, *, event=EVENT, symbol="BTCUSDT", mode="strict"):
-    return classify_gap(start, end, venue="Binance", symbol=symbol, events=[event], mode=mode)
+def classify(start, end, *, event=EVENT, market="Spot", symbol="BTCUSDT", mode="strict"):
+    return classify_gap(start, end, venue="Binance", market=market, symbol=symbol, events=[event], mode=mode)
 
 
 def test_strict_mode_rejects_documented_gap():
@@ -44,11 +44,12 @@ def test_gap_not_fully_contained_in_outage_is_rejected(start, end):
     assert classify(start, end, mode="outage_aware")["status"] == "rejected_unexplained_gap"
 
 
-def test_wrong_venue_or_symbol_scope_is_rejected():
+def test_wrong_venue_market_or_symbol_scope_is_rejected():
     assert classify_gap(
         "2023-03-24T12:40:00Z", "2023-03-24T14:00:00Z",
-        venue="KuCoin", symbol="BTCUSDT", events=[EVENT], mode="outage_aware",
+        venue="KuCoin", market="Spot", symbol="BTCUSDT", events=[EVENT], mode="outage_aware",
     )["status"] == "rejected_unexplained_gap"
+    assert classify("2023-03-24T12:40:00Z", "2023-03-24T14:00:00Z", market="Futures", mode="outage_aware")["status"] == "rejected_unexplained_gap"
     event = deepcopy(EVENT)
     event["symbol_scope"] = "ETHUSDT"
     assert classify("2023-03-24T12:40:00Z", "2023-03-24T14:00:00Z", event=event, mode="outage_aware")["status"] == "rejected_unexplained_gap"
