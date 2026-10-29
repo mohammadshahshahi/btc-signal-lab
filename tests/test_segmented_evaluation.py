@@ -94,8 +94,8 @@ class SegmentedEvaluationTests(unittest.TestCase):
         self.assertEqual(
             result["outage_policy"]["excluded_gaps"],
             [{
-                "gap_start_utc": "1970-01-01T00:03:00Z",
-                "gap_end_utc": "1970-01-01T00:05:00Z",
+                "gap_start_utc": "1970-01-01T00:25:00Z",
+                "gap_end_utc": "1970-01-01T00:33:20Z",
                 "status": "excluded_documented_outage",
                 "event_id": "test-documented-outage",
             }],
@@ -120,6 +120,15 @@ class SegmentedEvaluationTests(unittest.TestCase):
         self.assertEqual(
             result["outage_policy"]["matched_event_ids"],
             ["test-documented-outage"],
+        )
+        self.assertEqual(
+            result["outage_policy"]["excluded_gaps"],
+            [{
+                "gap_start_utc": "1970-01-01T00:03:00Z",
+                "gap_end_utc": "1970-01-01T00:05:00Z",
+                "status": "excluded_documented_outage",
+                "event_id": "test-documented-outage",
+            }],
         )
 
     def test_single_candle_segment_is_ineligible_for_backtest(self):
