@@ -91,6 +91,7 @@ def evaluate_contiguous_segments(
     # Record only events that actually explain an observed gap; do not list every
     # supplied candidate event in the output manifest.
     matched_event_ids: set[str] = set()
+    excluded_gaps: list[dict[str, Any]] = []
 
     # Validate all gap intervals before producing any evaluation results.
     for left, right in zip(candles, candles[1:]):
@@ -111,6 +112,12 @@ def evaluate_contiguous_segments(
         event_id = decision.get("event_id")
         if isinstance(event_id, str) and event_id and event_id != "unknown":
             matched_event_ids.add(event_id)
+        excluded_gaps.append({
+            "gap_start_utc": gap_start,
+            "gap_end_utc": gap_end,
+            "status": decision["status"],
+            "event_id": event_id,
+        })
 
     results: list[dict[str, Any]] = []
     for index, segment in enumerate(segments):
@@ -162,6 +169,7 @@ def evaluate_contiguous_segments(
             "market": market,
             "symbol": symbol,
             "matched_event_ids": sorted(matched_event_ids),
+            "excluded_gaps": excluded_gaps,
         },
         "policy": {
             "synthetic_candles": False,
