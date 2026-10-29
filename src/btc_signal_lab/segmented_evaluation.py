@@ -87,6 +87,10 @@ def evaluate_contiguous_segments(
         raise TypeError("outage_events must be a sequence of source-backed events")
     segments = split_contiguous_segments(candles, interval_ms=interval_ms)
 
+    # Record only events that actually explain an observed gap; do not list every
+    # supplied candidate event in the output manifest.
+    matched_event_ids: set[str] = set()
+
     # Validate all gap intervals before producing any evaluation results.
     for left, right in zip(candles, candles[1:]):
         left_ts, right_ts = left["timestamp_ms"], right["timestamp_ms"]
@@ -103,6 +107,9 @@ def evaluate_contiguous_segments(
                 f"unexplained or unapproved data gap [{gap_start}, {gap_end}); "
                 "segmented evaluation fails closed"
             )
+        event_id = decision.get("event_id")
+        if isinstance(event_id, str) and event_id and event_id != "unknown":
+            matched_event_ids.add(event_id)
 
     results: list[dict[str, Any]] = []
     for index, segment in enumerate(segments):
@@ -138,11 +145,7 @@ def evaluate_contiguous_segments(
             "venue": venue,
             "market": market,
             "symbol": symbol,
-            "matched_event_ids": sorted({
-                event.get("event_id")
-                for event in outage_events
-                if isinstance(event, dict) and event.get("event_id")
-            }),
+            "matched_event_ids": sorted(matched_event_ids),
         },
         "policy": {
             "synthetic_candles": False,
