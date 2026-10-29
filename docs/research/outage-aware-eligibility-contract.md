@@ -15,7 +15,7 @@ The initial evidence record is `binance-spot-halt-2023-03-24`: Binance Spot susp
 - Explicit outage-aware mode may label a fully contained, source-backed gap as `excluded_documented_outage`; it does not make the data complete or eligible for continuous-candle calculations.
 - Unexplained gaps, invalid event intervals, invalid provenance, mismatched venue/market/symbol, invalid gap intervals, and gaps extending beyond event boundaries fail closed.
 - Never synthesize, interpolate, forward-fill, or silently substitute candles or venues.
-- No production validator or evaluation workflow consumes this proposal yet. Integration requires review, manifest changes, and end-to-end tests.
+- The canonical strict validator and Multi-Regime Paper Validation remain unchanged. A separate opt-in `Outage-Aware Segmented Research Validation` workflow now consumes this policy only for the pre-registered Recovery/1h window; it verifies official monthly archive checksums, allows only the exact documented gap, writes a provenance-rich artifact, and fails if any additional or different gap appears.
 - The reserved final-test period 2025-02-01 through 2026-02-01 must remain untouched.
 
 ## Validation
