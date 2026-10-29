@@ -12,6 +12,7 @@ from typing import Any, Mapping, Sequence
 
 from .backtest import run_backtest
 from .horizon_evaluator import evaluate_forward_horizon
+from .benchmark import run_buy_and_hold
 from .outage_policy import classify_gap
 
 Candle = Mapping[str, Any]
@@ -119,6 +120,8 @@ def evaluate_contiguous_segments(
             "end_timestamp_ms": segment[-1]["timestamp_ms"],
             "candle_count": len(segment),
             "backtest": None,
+            "benchmark": None,
+            "comparison": None,
             "forward_horizon": None,
             "eligibility": "eligible_contiguous_segment",
         }
@@ -129,6 +132,19 @@ def evaluate_contiguous_segments(
                 fee_rate=fee_rate,
                 slippage_bps=slippage_bps,
             )
+            result["benchmark"] = run_buy_and_hold(
+                segment,
+                initial_capital=initial_capital,
+                fee_rate=fee_rate,
+                slippage_bps=slippage_bps,
+            )
+            result["comparison"] = {
+                "strategy_minus_buy_and_hold_return_pct": (
+                    result["backtest"]["net_return_pct"]
+                    - result["benchmark"]["net_return_pct"]
+                ),
+                "interpretation": "per-segment descriptive comparison; not a continuous compounded portfolio result",
+            }
         else:
             result["eligibility"] = "ineligible_too_short_for_backtest"
         if len(segment) > horizon_bars:
