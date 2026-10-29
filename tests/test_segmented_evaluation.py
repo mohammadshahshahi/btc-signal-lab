@@ -91,6 +91,15 @@ class SegmentedEvaluationTests(unittest.TestCase):
         self.assertEqual(
             result["outage_policy"]["matched_event_ids"], ["test-documented-outage"]
         )
+        self.assertEqual(
+            result["outage_policy"]["excluded_gaps"],
+            [{
+                "gap_start_utc": "1970-01-01T00:03:00Z",
+                "gap_end_utc": "1970-01-01T00:05:00Z",
+                "status": "excluded_documented_outage",
+                "event_id": "test-documented-outage",
+            }],
+        )
         self.assertFalse(result["policy"]["synthetic_candles"])
         self.assertFalse(result["policy"]["indicator_history_crosses_gap"])
         self.assertFalse(result["policy"]["positions_cross_gaps"])
