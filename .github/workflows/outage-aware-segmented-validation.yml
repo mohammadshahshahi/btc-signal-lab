@@ -1,0 +1,50 @@
+name: Outage-Aware Segmented Research Validation
+
+on:
+  push:
+    branches:
+      - "fix/**"
+    paths:
+      - ".github/workflows/outage-aware-segmented-validation.yml"
+      - "scripts/run_outage_aware_validation.py"
+      - "src/btc_signal_lab/segmented_evaluation.py"
+      - "src/btc_signal_lab/outage_policy.py"
+      - "src/btc_signal_lab/backtest.py"
+      - "src/btc_signal_lab/benchmark.py"
+      - "src/btc_signal_lab/horizon_evaluator.py"
+      - "docs/research/binance-spot-outage-2023-03-24.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: outage-aware-segmented-validation-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recovery-1h-outage-aware:
+    name: recovery / 1h / explicit outage-aware (research only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out exact code commit
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        run: python -m pip install -e .
+      - name: Run checksum-verified segmented validation
+        env:
+          GITHUB_SHA: \${{ github.sha }}
+          OUTPUT_DIR: validation-artifacts
+        run: python scripts/run_outage_aware_validation.py
+      - name: Upload reproducibility bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: outage-aware-recovery-1h-\${{ github.run_id }}
+          path: validation-artifacts/
+          if-no-files-found: error
+          retention-days: 90
