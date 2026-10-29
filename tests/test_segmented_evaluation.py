@@ -96,6 +96,23 @@ class SegmentedEvaluationTests(unittest.TestCase):
         self.assertFalse(result["policy"]["positions_cross_gaps"])
         self.assertFalse(result["policy"]["forward_labels_cross_gaps"])
 
+    def test_manifest_lists_only_events_that_matched_observed_gaps(self):
+        unrelated = {
+            **TEST_OUTAGE,
+            "event_id": "unused-unrelated-event",
+            "symbol_scope": "ETHUSDT",
+        }
+        data = candles([0, 60_000, 120_000, 300_000, 360_000])
+        result = evaluate_contiguous_segments(
+            data, interval_ms=60_000, venue="Binance", market="Spot",
+            symbol="BTCUSDT", outage_events=[TEST_OUTAGE, unrelated],
+            horizon_bars=24,
+        )
+        self.assertEqual(
+            result["outage_policy"]["matched_event_ids"],
+            ["test-documented-outage"],
+        )
+
     def test_single_candle_segment_is_ineligible_for_backtest(self):
         result = evaluate(candles([0, 120_000, 240_000]), horizon_bars=24)
         self.assertEqual(result["segment_count"], 3)
