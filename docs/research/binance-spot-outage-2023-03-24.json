@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "event_id": "binance-spot-halt-2023-03-24",
+  "status": "research_evidence_only_not_yet_consumed_by_validator",
+  "venue": "Binance",
+  "market": "Spot",
+  "symbol_scope": "all_spot_symbols",
+  "event_date_utc": "2023-03-24",
+  "documented_suspension_start_utc": "2023-03-24T11:27:00Z",
+  "documented_resume_utc": "2023-03-24T14:00:00Z",
+  "official_cause": "Matching-engine bug related to a trailing-stop order; Spot trading temporarily disabled.",
+  "sources": [
+    {
+      "type": "official_blog",
+      "url": "https://www.binance.com/en/blog/from-our-ceo/6789340645608890113",
+      "supports": ["trading disabled at 11:27 UTC", "trading resumed at 14:00 UTC", "cause was trailing-stop-order matching-engine bug"]
+    },
+    {
+      "type": "official_announcement",
+      "url": "https://www.binance.com/en/support/announcement/detail/813a31506e9f478ea8c1058b425df87a",
+      "supports": ["Spot trading resumed at 14:00 UTC"]
+    }
+  ],
+  "observed_btcusdt_trade_evidence": {
+    "source": "official Binance Vision daily Spot trades archive",
+    "url": "https://data.binance.vision/data/spot/daily/trades/BTCUSDT/BTCUSDT-trades-2023-03-24.zip",
+    "sha256": "bceaa0b664b055318c22e509d33c04d532da143e7de41ca2fc3457100439c587",
+    "last_trade_before_suspension_utc": "2023-03-24T11:27:23.146Z",
+    "first_trade_after_resume_utc": "2023-03-24T14:00:00.062Z",
+    "target_interval_utc": ["2023-03-24T12:40:00Z", "2023-03-24T14:00:00Z"],
+    "trades_in_target_interval": 0
+  },
+  "validation_policy": {
+    "synthesize_candles": false,
+    "interpolate_or_forward_fill": false,
+    "silently_pass_continuous_candle_gate": false,
+    "recommended_handling": "Represent this as a source-backed exchange outage. Exclude affected minute buckets from continuous-candle backtests or implement an explicit outage-aware eligibility contract with tests before changing the strict gate."
+  }
+}
